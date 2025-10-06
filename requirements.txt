@@ -1,0 +1,8 @@
+pandas>=1.5.0
+openpyxl>=3.0.0
+tkinter
+json5>=0.9.0
+datetime
+re
+os
+pathlib
