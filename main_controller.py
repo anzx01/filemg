@@ -5,6 +5,7 @@ Excel文档合并工具 - 主控制器模块
 
 import os
 import sys
+import pandas as pd
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -12,6 +13,10 @@ from datetime import datetime
 from ui_module import ExcelMergeUI
 from file_manager import FileManager, FileInfo
 from file_operations import FileOperations
+from field_mapping import FieldMappingManager
+from header_detection import HeaderDetector
+from data_processing import DataProcessor
+from special_rules import SpecialRulesManager
 
 
 class ExcelMergeController:
@@ -21,6 +26,10 @@ class ExcelMergeController:
         """初始化控制器"""
         self.file_manager = FileManager()
         self.file_operations = FileOperations()
+        self.field_mapping_manager = FieldMappingManager()
+        self.header_detector = HeaderDetector()
+        self.special_rules_manager = SpecialRulesManager()
+        self.data_processor = DataProcessor(self.field_mapping_manager, self.header_detector)
         self.ui = None
         self.config_dir = "config"
         self.output_dir = "output"
@@ -38,6 +47,9 @@ class ExcelMergeController:
             
             # 创建用户界面
             self.ui = ExcelMergeUI()
+            
+            # 将控制器绑定到UI
+            self.ui.controller = self
             
             # 绑定控制器方法到界面
             self._bind_ui_events()
@@ -270,7 +282,9 @@ class ExcelMergeController:
         
         imported_files = self.file_manager.get_imported_files()
         for file_info in imported_files:
-            self.ui.file_listbox.insert('end', file_info.file_name)
+            # 显示文件名和记录数
+            display_text = f"{file_info.file_name} ({file_info.record_count}条记录)"
+            self.ui.file_listbox.insert('end', display_text)
             self.ui.imported_files.append(file_info.file_path)
     
     def _update_ui_file_list(self):
@@ -359,6 +373,197 @@ class ExcelMergeController:
         """显示错误消息"""
         print(f"错误: {message}")
         # 这里将来会显示界面错误消息
+    
+    def merge_files(self, file_paths: List[str], output_path: str) -> bool:
+        """合并文件"""
+        try:
+            print(f"开始合并 {len(file_paths)} 个文件...")
+            
+            # 使用数据处理器合并文件
+            merge_result = self.data_processor.merge_files(file_paths, output_path)
+            
+            if merge_result:
+                print(f"合并完成: {merge_result.total_records} 条记录")
+                print(f"处理时间: {merge_result.processing_time:.2f}秒")
+                
+                # 验证合并结果
+                is_valid, issues = self.data_processor.validate_merged_data(merge_result.merged_data)
+                if not is_valid:
+                    print(f"数据验证警告: {issues}")
+                
+                # 生成汇总报告
+                summary = self.data_processor.generate_summary_report(merge_result)
+                print(f"汇总报告: {summary}")
+                
+                return True
+            else:
+                print("合并失败")
+                return False
+                
+        except Exception as e:
+            print(f"合并文件失败: {e}")
+            return False
+    
+    # ==================== 特殊规则管理方法 ====================
+    
+    def add_special_rule(self, rule_description: str, bank_name: str = None) -> Dict[str, Any]:
+        """添加特殊规则
+        
+        Args:
+            rule_description: 规则描述（自然语言）
+            bank_name: 银行名称
+            
+        Returns:
+            Dict: 添加结果
+        """
+        try:
+            return self.special_rules_manager.add_rule(rule_description, bank_name)
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "rule": None
+            }
+    
+    def remove_special_rule(self, rule_id: str) -> bool:
+        """删除特殊规则
+        
+        Args:
+            rule_id: 规则ID
+            
+        Returns:
+            bool: 删除是否成功
+        """
+        try:
+            return self.special_rules_manager.remove_rule(rule_id)
+        except Exception as e:
+            print(f"删除规则失败: {e}")
+            return False
+    
+    def update_special_rule(self, rule_id: str, updates: Dict[str, Any]) -> bool:
+        """更新特殊规则
+        
+        Args:
+            rule_id: 规则ID
+            updates: 更新内容
+            
+        Returns:
+            bool: 更新是否成功
+        """
+        try:
+            return self.special_rules_manager.update_rule(rule_id, updates)
+        except Exception as e:
+            print(f"更新规则失败: {e}")
+            return False
+    
+    def get_special_rules(self, bank_name: str = None) -> List[Dict[str, Any]]:
+        """获取特殊规则列表
+        
+        Args:
+            bank_name: 银行名称，如果指定则只返回该银行的规则
+            
+        Returns:
+            List[Dict]: 规则列表
+        """
+        try:
+            return self.special_rules_manager.get_rules(bank_name)
+        except Exception as e:
+            print(f"获取规则失败: {e}")
+            return []
+    
+    def get_special_rule_by_id(self, rule_id: str) -> Optional[Dict[str, Any]]:
+        """根据ID获取特殊规则
+        
+        Args:
+            rule_id: 规则ID
+            
+        Returns:
+            Optional[Dict]: 规则对象
+        """
+        try:
+            return self.special_rules_manager.get_rule_by_id(rule_id)
+        except Exception as e:
+            print(f"获取规则失败: {e}")
+            return None
+    
+    def apply_special_rules(self, data: pd.DataFrame, bank_name: str = None, rule_ids: List[str] = None) -> pd.DataFrame:
+        """应用特殊规则到数据
+        
+        Args:
+            data: 输入数据
+            bank_name: 银行名称
+            rule_ids: 规则ID列表
+            
+        Returns:
+            pd.DataFrame: 处理后的数据
+        """
+        try:
+            return self.special_rules_manager.apply_rules(data, bank_name, rule_ids)
+        except Exception as e:
+            print(f"应用规则失败: {e}")
+            return data
+    
+    def get_rule_statistics(self) -> Dict[str, Any]:
+        """获取规则统计信息
+        
+        Returns:
+            Dict: 统计信息
+        """
+        try:
+            return self.special_rules_manager.get_rule_statistics()
+        except Exception as e:
+            print(f"获取规则统计失败: {e}")
+            return {}
+    
+    def validate_all_rules(self) -> Dict[str, Any]:
+        """验证所有规则
+        
+        Returns:
+            Dict: 验证结果
+        """
+        try:
+            return self.special_rules_manager.validate_all_rules()
+        except Exception as e:
+            print(f"验证规则失败: {e}")
+            return {}
+    
+    def export_rules(self, file_path: str) -> bool:
+        """导出规则到文件
+        
+        Args:
+            file_path: 导出文件路径
+            
+        Returns:
+            bool: 导出是否成功
+        """
+        try:
+            return self.special_rules_manager.export_rules(file_path)
+        except Exception as e:
+            print(f"导出规则失败: {e}")
+            return False
+    
+    def import_rules(self, file_path: str) -> bool:
+        """从文件导入规则
+        
+        Args:
+            file_path: 导入文件路径
+            
+        Returns:
+            bool: 导入是否成功
+        """
+        try:
+            return self.special_rules_manager.import_rules(file_path)
+        except Exception as e:
+            print(f"导入规则失败: {e}")
+            return False
+    
+    def get_merge_result(self, file_paths: List[str], output_path: str):
+        """获取合并结果对象"""
+        try:
+            return self.data_processor.merge_files(file_paths, output_path)
+        except Exception as e:
+            print(f"获取合并结果失败: {e}")
+            return None
 
 
 def main():

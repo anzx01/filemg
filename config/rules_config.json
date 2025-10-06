@@ -1,0 +1,169 @@
+[
+  {
+    "id": "rule_1",
+    "description": "北京银行日期范围从2024-01-01至2024-12-31",
+    "type": "date_range",
+    "bank_name": "北京银行",
+    "keywords": [
+      "日期:2024-01-01",
+      "日期:2024-12-31",
+      "金额:2024",
+      "金额:01",
+      "金额:01",
+      "金额:2024",
+      "金额:12",
+      "金额:31",
+      "银行:北京银行",
+      "字段:日期",
+      "银行:北京银行",
+      "规则:日期范围"
+    ],
+    "parameters": {
+      "start_date": "2024-01-01",
+      "end_date": "2024-12-31",
+      "date_format": "%Y-%m-%d"
+    },
+    "created_time": "2025-10-07T00:11:38.279015",
+    "status": "inactive"
+  },
+  {
+    "id": "rule_2",
+    "description": "工商银行余额增加1000元",
+    "type": "balance_processing",
+    "bank_name": "工商银行",
+    "keywords": [
+      "金额:1000",
+      "银行:工商银行",
+      "操作:增加",
+      "字段:余额",
+      "银行:工商银行"
+    ],
+    "parameters": {
+      "error": "无法解析余额规则"
+    },
+    "created_time": "2025-10-07T00:11:38.280827",
+    "status": "active"
+  },
+  {
+    "id": "rule_3",
+    "description": "华夏银行收支分类：收入5000元",
+    "type": "income_expense",
+    "bank_name": "华夏银行",
+    "keywords": [
+      "金额:5000",
+      "银行:华夏银行",
+      "操作:分类",
+      "银行:华夏银行",
+      "规则:收支分类"
+    ],
+    "parameters": {
+      "category": "收入",
+      "amount": 5000.0,
+      "field": "transaction_amount"
+    },
+    "created_time": "2025-10-07T00:11:38.283851",
+    "status": "active"
+  },
+  {
+    "id": "rule_4",
+    "description": "长安银行分页符每1000行",
+    "type": "custom",
+    "bank_name": "长安银行",
+    "keywords": [
+      "金额:1000",
+      "银行:长安银行",
+      "银行:长安银行"
+    ],
+    "parameters": {
+      "description": "长安银行分页符每1000行",
+      "rule_type": "custom",
+      "parameters": {}
+    },
+    "created_time": "2025-10-07T00:11:38.285507",
+    "status": "active"
+  },
+  {
+    "id": "rule_1",
+    "description": "北京银行日期范围从2024-01-01至2024-12-31",
+    "type": "date_range",
+    "bank_name": "北京银行",
+    "keywords": [
+      "日期:2024-01-01",
+      "日期:2024-12-31",
+      "金额:2024",
+      "金额:01",
+      "金额:01",
+      "金额:2024",
+      "金额:12",
+      "金额:31",
+      "银行:北京银行",
+      "字段:日期",
+      "银行:北京银行",
+      "规则:日期范围"
+    ],
+    "parameters": {
+      "start_date": "2024-01-01",
+      "end_date": "2024-12-31",
+      "date_format": "%Y-%m-%d"
+    },
+    "created_time": "2025-10-07T00:11:38.303413",
+    "status": "inactive"
+  },
+  {
+    "id": "rule_1",
+    "description": "余额增加500元",
+    "type": "balance_processing",
+    "bank_name": "测试银行",
+    "keywords": [
+      "金额:500",
+      "操作:增加",
+      "字段:余额"
+    ],
+    "parameters": {
+      "error": "无法解析余额规则"
+    },
+    "created_time": "2025-10-07T00:11:38.324478",
+    "status": "active"
+  },
+  {
+    "id": "rule_2",
+    "description": "日期范围从2024-01-01至2024-06-30",
+    "type": "date_range",
+    "bank_name": "测试银行",
+    "keywords": [
+      "日期:2024-01-01",
+      "日期:2024-06-30",
+      "金额:2024",
+      "金额:01",
+      "金额:01",
+      "金额:2024",
+      "金额:06",
+      "金额:30",
+      "字段:日期"
+    ],
+    "parameters": {
+      "start_date": "2024-01-01",
+      "end_date": "2024-06-30",
+      "date_format": "%Y-%m-%d"
+    },
+    "created_time": "2025-10-07T00:11:38.326733",
+    "status": "active"
+  },
+  {
+    "id": "rule_3",
+    "description": "收支分类：收入1000元",
+    "type": "custom",
+    "bank_name": "测试银行",
+    "keywords": [
+      "金额:1000",
+      "操作:分类"
+    ],
+    "parameters": {
+      "description": "收支分类：收入1000元",
+      "rule_type": "custom",
+      "parameters": {}
+    },
+    "created_time": "2025-10-07T00:11:38.328225",
+    "status": "active"
+  }
+]

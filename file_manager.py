@@ -14,12 +14,13 @@ class FileInfo:
     """文件信息类"""
     
     def __init__(self, file_path: str, file_name: str, columns: List[str], 
-                 header_row: int = 0, import_time: datetime = None):
+                 header_row: int = 0, import_time: datetime = None, record_count: int = 0):
         self.file_path = file_path
         self.file_name = file_name
         self.columns = columns
         self.header_row = header_row
         self.import_time = import_time or datetime.now()
+        self.record_count = record_count
     
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -28,7 +29,8 @@ class FileInfo:
             'file_name': self.file_name,
             'columns': self.columns,
             'header_row': self.header_row,
-            'import_time': self.import_time.isoformat()
+            'import_time': self.import_time.isoformat(),
+            'record_count': self.record_count
         }
     
     @classmethod
@@ -39,7 +41,8 @@ class FileInfo:
             file_name=data['file_name'],
             columns=data['columns'],
             header_row=data['header_row'],
-            import_time=datetime.fromisoformat(data['import_time'])
+            import_time=datetime.fromisoformat(data['import_time']),
+            record_count=data.get('record_count', 0)
         )
 
 
@@ -226,6 +229,13 @@ class FileManager:
             if not columns:
                 return None
             
+            # 读取记录数
+            try:
+                df = pd.read_excel(file_path)
+                record_count = len(df)
+            except:
+                record_count = 0
+            
             # 创建文件信息对象
             file_name = os.path.basename(file_path)
             file_info = FileInfo(
@@ -233,7 +243,8 @@ class FileManager:
                 file_name=file_name,
                 columns=columns,
                 header_row=0,  # 默认第一行为表头
-                import_time=datetime.now()
+                import_time=datetime.now(),
+                record_count=record_count
             )
             
             return file_info

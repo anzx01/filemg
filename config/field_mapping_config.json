@@ -1,0 +1,290 @@
+{
+  "standard_fields": [
+    {
+      "name": "account_number",
+      "display_name": "账户号码",
+      "data_type": "string",
+      "required": true,
+      "description": "银行账户号码"
+    },
+    {
+      "name": "account_name",
+      "display_name": "账户名称",
+      "data_type": "string",
+      "required": true,
+      "description": "账户持有人姓名"
+    },
+    {
+      "name": "transaction_date",
+      "display_name": "交易日期",
+      "data_type": "date",
+      "required": true,
+      "description": "交易发生日期"
+    },
+    {
+      "name": "transaction_amount",
+      "display_name": "交易金额",
+      "data_type": "number",
+      "required": true,
+      "description": "交易金额"
+    },
+    {
+      "name": "balance",
+      "display_name": "余额",
+      "data_type": "number",
+      "required": true,
+      "description": "账户余额"
+    },
+    {
+      "name": "transaction_type",
+      "display_name": "交易类型",
+      "data_type": "string",
+      "required": false,
+      "description": "交易类型（收入/支出）"
+    },
+    {
+      "name": "description",
+      "display_name": "交易描述",
+      "data_type": "string",
+      "required": false,
+      "description": "交易描述信息"
+    },
+    {
+      "name": "reference_number",
+      "display_name": "参考号",
+      "data_type": "string",
+      "required": false,
+      "description": "交易参考号码"
+    },
+    {
+      "name": "bank_name",
+      "display_name": "银行名称",
+      "data_type": "string",
+      "required": false,
+      "description": "银行名称"
+    },
+    {
+      "name": "currency",
+      "display_name": "币种",
+      "data_type": "string",
+      "required": false,
+      "description": "货币类型"
+    },
+    {
+      "name": "收入",
+      "display_name": "收入",
+      "data_type": "string",
+      "required": false,
+      "description": ""
+    }
+  ],
+  "field_mappings": [
+    {
+      "file_id": "银行A.xlsx",
+      "file_name": "银行A.xlsx",
+      "standard_field": "account_number",
+      "file_field": "账户号码",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行A.xlsx",
+      "file_name": "银行A.xlsx",
+      "standard_field": "account_name",
+      "file_field": "户名",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行A.xlsx",
+      "file_name": "银行A.xlsx",
+      "standard_field": "transaction_date",
+      "file_field": "交易日期",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行A.xlsx",
+      "file_name": "银行A.xlsx",
+      "standard_field": "transaction_amount",
+      "file_field": "交易金额",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行A.xlsx",
+      "file_name": "银行A.xlsx",
+      "standard_field": "balance",
+      "file_field": "账户余额",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行A.xlsx",
+      "file_name": "银行A.xlsx",
+      "standard_field": "description",
+      "file_field": "备注",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行B.xlsx",
+      "file_name": "银行B.xlsx",
+      "standard_field": "account_number",
+      "file_field": "账户号码",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行B.xlsx",
+      "file_name": "银行B.xlsx",
+      "standard_field": "account_name",
+      "file_field": "户名",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行B.xlsx",
+      "file_name": "银行B.xlsx",
+      "standard_field": "transaction_date",
+      "file_field": "交易日期",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行B.xlsx",
+      "file_name": "银行B.xlsx",
+      "standard_field": "transaction_amount",
+      "file_field": "交易金额",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行B.xlsx",
+      "file_name": "银行B.xlsx",
+      "standard_field": "balance",
+      "file_field": "账户余额",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "银行B.xlsx",
+      "file_name": "银行B.xlsx",
+      "standard_field": "description",
+      "file_field": "备注",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "账户号码",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "账户名称",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "交易日期",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "交易金额",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "余额",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "交易类型",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "交易描述",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "参考号",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "银行名称",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "币种",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    },
+    {
+      "file_id": "北京银行.xlsx",
+      "file_name": "",
+      "standard_field": "收入",
+      "file_field": "    对账单       按日期查询",
+      "mapping_type": "direct",
+      "transform_rule": "",
+      "is_active": true
+    }
+  ]
+}
