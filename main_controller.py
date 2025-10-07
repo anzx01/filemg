@@ -13,7 +13,6 @@ from datetime import datetime
 from ui_module import ExcelMergeUI
 from file_manager import FileManager, FileInfo
 from file_operations import FileOperations
-from field_mapping import FieldMappingManager
 from header_detection import HeaderDetector
 from data_processing import DataProcessor
 from special_rules import SpecialRulesManager
@@ -26,10 +25,9 @@ class ExcelMergeController:
         """初始化控制器"""
         self.file_manager = FileManager()
         self.file_operations = FileOperations()
-        self.field_mapping_manager = FieldMappingManager()
         self.header_detector = HeaderDetector()
         self.special_rules_manager = SpecialRulesManager()
-        self.data_processor = DataProcessor(self.field_mapping_manager, self.header_detector)
+        self.data_processor = DataProcessor(self.header_detector)
         self.ui = None
         self.config_dir = "config"
         self.output_dir = "output"
@@ -43,8 +41,6 @@ class ExcelMergeController:
     def start_application(self):
         """启动应用程序"""
         try:
-            print("启动Excel文档合并工具...")
-            
             # 创建用户界面
             self.ui = ExcelMergeUI()
             
@@ -138,29 +134,47 @@ class ExcelMergeController:
             print(f"文件重新导入失败: {e}")
             return False
     
-    def handle_field_mapping(self, file_name: str, mappings: Dict[str, str]) -> bool:
+    def save_field_mapping_config(self, file_name: str, mappings: List[Dict[str, Any]]) -> bool:
         """
-        处理字段映射配置
+        保存字段映射配置
         
         Args:
             file_name: 文件名
-            mappings: 映射关系字典
+            mappings: 映射关系列表
             
         Returns:
-            配置是否成功
+            保存是否成功
         """
         try:
-            # 这里将来会调用字段映射模块
-            print(f"配置字段映射: {file_name} -> {mappings}")
+            print(f"保存字段映射配置: {file_name} -> {len(mappings)} 个映射")
             
             # 保存映射配置
-            self._save_mapping_config(file_name, mappings)
+            self._save_field_mapping_config(file_name, mappings)
             
             return True
             
         except Exception as e:
-            print(f"字段映射配置失败: {e}")
+            print(f"字段映射配置保存失败: {e}")
             return False
+    
+    def load_field_mapping_config(self, file_name: str) -> List[Dict[str, Any]]:
+        """
+        加载字段映射配置
+        
+        Args:
+            file_name: 文件名
+            
+        Returns:
+            映射关系列表
+        """
+        try:
+            if file_name in self.mapping_config:
+                return self.mapping_config[file_name]
+            return []
+            
+        except Exception as e:
+            print(f"字段映射配置加载失败: {e}")
+            return []
     
     def handle_special_rules(self, file_name: str, rules: List[str]) -> bool:
         """
@@ -254,9 +268,9 @@ class ExcelMergeController:
     def _load_configurations(self):
         """加载配置"""
         try:
-            # 加载映射配置
-            mapping_config_path = os.path.join(self.config_dir, "mapping_config.json")
-            self.mapping_config = self.file_operations.load_json_config(mapping_config_path)
+            # 加载字段映射配置
+            field_mapping_config_path = os.path.join(self.config_dir, "field_mapping_config.json")
+            self.mapping_config = self.file_operations.load_json_config(field_mapping_config_path)
             
             # 加载规则配置
             rules_config_path = os.path.join(self.config_dir, "rules_config.json")
@@ -282,9 +296,11 @@ class ExcelMergeController:
         
         imported_files = self.file_manager.get_imported_files()
         for file_info in imported_files:
-            # 显示文件名和记录数
-            display_text = f"{file_info.file_name} ({file_info.record_count}条记录)"
-            self.ui.file_listbox.insert('end', display_text)
+            # 显示文件名、路径和记录数
+            file_name = file_info.file_name
+            file_dir = os.path.dirname(file_info.file_path)
+            record_count = file_info.record_count
+            self.ui.file_treeview.insert('', 'end', values=(file_name, file_dir, f"{record_count}条"))
             self.ui.imported_files.append(file_info.file_path)
     
     def _update_ui_file_list(self):
@@ -293,7 +309,8 @@ class ExcelMergeController:
             return
         
         # 清空现有列表
-        self.ui.file_listbox.delete(0, 'end')
+        for item in self.ui.file_treeview.get_children():
+            self.ui.file_treeview.delete(item)
         self.ui.imported_files.clear()
         
         # 重新加载文件列表
@@ -310,14 +327,11 @@ class ExcelMergeController:
             f.write(f"失败: {len(results['failed'])}\n")
             f.write(f"重复: {len(results['duplicates'])}\n")
     
-    def _save_mapping_config(self, file_name: str, mappings: Dict[str, str]):
-        """保存映射配置"""
-        if file_name not in self.mapping_config:
-            self.mapping_config[file_name] = {}
+    def _save_field_mapping_config(self, file_name: str, mappings: List[Dict[str, Any]]):
+        """保存字段映射配置"""
+        self.mapping_config[file_name] = mappings
         
-        self.mapping_config[file_name].update(mappings)
-        
-        config_path = os.path.join(self.config_dir, "mapping_config.json")
+        config_path = os.path.join(self.config_dir, "field_mapping_config.json")
         self.file_operations.save_json_config(self.mapping_config, config_path)
     
     def _save_rules_config(self, file_name: str, rules: List[str]):

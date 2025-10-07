@@ -11,7 +11,6 @@ import os
 from datetime import datetime
 import re
 
-from field_mapping import FieldMappingManager, FieldMapping
 from header_detection import HeaderDetector, HeaderInfo
 
 
@@ -40,9 +39,8 @@ class MergeResult:
 class DataProcessor:
     """数据处理器"""
     
-    def __init__(self, field_mapping_manager: FieldMappingManager, header_detector: HeaderDetector):
+    def __init__(self, header_detector: HeaderDetector):
         """初始化数据处理器"""
-        self.field_mapping_manager = field_mapping_manager
         self.header_detector = header_detector
         
         # 数据类型转换规则
@@ -84,14 +82,23 @@ class DataProcessor:
             
             header = headers[0] if not sheet_name else next((h for h in headers if h.sheet_name == sheet_name), headers[0])
             
-            # 读取数据
-            df = pd.read_excel(file_path, sheet_name=header.sheet_name, header=header.header_row)
+            # 读取数据 - 使用原始数据，不指定header
+            df = pd.read_excel(file_path, sheet_name=header.sheet_name, header=None)
+            
+            # 过滤分页符行
+            df = self._filter_page_breaks(df)
+            
+            # 重新设置表头
+            if header.header_row < len(df):
+                df.columns = df.iloc[header.header_row]
+                df = df.iloc[header.header_row + 1:].reset_index(drop=True)
             
             # 清理数据
             df = self._clean_data(df)
             
-            # 应用字段映射
-            mapped_data, mapped_columns = self._apply_field_mapping(df, file_id, header.columns)
+            # 直接使用原始数据，不进行字段映射
+            mapped_data = df
+            mapped_columns = {}
             
             # 识别余额列
             balance_columns = self._identify_balance_columns(mapped_data, header.balance_columns)
@@ -127,6 +134,9 @@ class DataProcessor:
         # 删除完全为空的列
         df = df.dropna(axis=1, how='all')
         
+        # 过滤分页符行
+        df = self._filter_page_breaks(df)
+        
         # 重置索引
         df = df.reset_index(drop=True)
         
@@ -138,67 +148,39 @@ class DataProcessor:
         
         return df
     
-    def _apply_field_mapping(self, df: pd.DataFrame, file_id: str, original_columns: List[str]) -> Tuple[pd.DataFrame, Dict[str, str]]:
-        """应用字段映射"""
-        # 获取文件的所有映射
-        mappings = self.field_mapping_manager.get_file_mappings(file_id)
+    def _filter_page_breaks(self, df: pd.DataFrame) -> pd.DataFrame:
+        """过滤分页符行"""
+        if df.empty:
+            return df
         
-        if not mappings:
-            # 如果没有映射，返回原始数据
-            return df, {}
+        # 分页符关键词
+        page_break_keywords = [
+            "查询编号", "对公往来户明细表", "分页", "第", "页", "共",
+            "明细表", "查询", "编号", "页次", "页码"
+        ]
         
-        # 创建映射字典
-        mapping_dict = {m.standard_field: m for m in mappings}
+        # 创建过滤后的DataFrame
+        filtered_rows = []
         
-        # 创建新的数据框
-        mapped_data = pd.DataFrame()
-        mapped_columns = {}
+        for index, row in df.iterrows():
+            # 将行数据转换为字符串并连接
+            row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
+            
+            # 检查是否包含分页符关键词
+            is_page_break = False
+            for keyword in page_break_keywords:
+                if keyword in row_text:
+                    is_page_break = True
+                    break
+            
+            # 如果不是分页符行，则保留
+            if not is_page_break:
+                filtered_rows.append(row)
         
-        for mapping in mappings:
-            if mapping.file_field in df.columns:
-                # 获取原始列数据
-                original_data = df[mapping.file_field].copy()
-                
-                # 应用数据转换
-                if mapping.mapping_type == "transform" and mapping.transform_rule:
-                    original_data = self._apply_transform(original_data, mapping.transform_rule)
-                elif mapping.mapping_type == "custom":
-                    original_data = self._apply_custom_rule(original_data, mapping.transform_rule)
-                
-                # 添加到映射后的数据框
-                mapped_data[mapping.standard_field] = original_data
-                mapped_columns[mapping.standard_field] = mapping.file_field
-        
-        return mapped_data, mapped_columns
-    
-    def _apply_transform(self, data: pd.Series, transform_rule: str) -> pd.Series:
-        """应用数据转换规则"""
-        try:
-            # 简单的转换规则处理
-            if transform_rule == "upper()":
-                return data.astype(str).str.upper()
-            elif transform_rule == "lower()":
-                return data.astype(str).str.lower()
-            elif transform_rule == "strip()":
-                return data.astype(str).str.strip()
-            elif transform_rule == "abs()":
-                return pd.to_numeric(data, errors='coerce').abs()
-            else:
-                # 默认返回原始数据
-                return data
-        except Exception as e:
-            print(f"应用转换规则失败: {e}")
-            return data
-    
-    def _apply_custom_rule(self, data: pd.Series, custom_rule: str) -> pd.Series:
-        """应用自定义规则"""
-        try:
-            # 这里可以实现更复杂的自定义规则
-            # 暂时返回原始数据
-            return data
-        except Exception as e:
-            print(f"应用自定义规则失败: {e}")
-            return data
+        if filtered_rows:
+            return pd.DataFrame(filtered_rows).reset_index(drop=True)
+        else:
+            return df
     
     def _identify_balance_columns(self, df: pd.DataFrame, detected_balance_columns: List[str]) -> List[str]:
         """识别余额列"""
@@ -401,7 +383,6 @@ def test_data_processing():
     os.makedirs(test_dir, exist_ok=True)
     
     try:
-        from field_mapping import FieldMappingManager
         from header_detection import HeaderDetector
         
         # 创建测试数据
@@ -428,29 +409,9 @@ def test_data_processing():
         pd.DataFrame(test_data1).to_excel(test_file1, index=False)
         pd.DataFrame(test_data2).to_excel(test_file2, index=False)
         
-        # 创建字段映射
-        field_manager = FieldMappingManager(config_dir=test_dir)
-        header_detector = HeaderDetector()
-        
-        # 添加字段映射
-        mappings = [
-            FieldMapping("test1.xlsx", "test1.xlsx", "account_number", "账户号码", "direct"),
-            FieldMapping("test1.xlsx", "test1.xlsx", "account_name", "户名", "direct"),
-            FieldMapping("test1.xlsx", "test1.xlsx", "transaction_date", "交易日期", "direct"),
-            FieldMapping("test1.xlsx", "test1.xlsx", "transaction_amount", "交易金额", "direct"),
-            FieldMapping("test1.xlsx", "test1.xlsx", "balance", "账户余额", "direct"),
-            FieldMapping("test2.xlsx", "test2.xlsx", "account_number", "账户号码", "direct"),
-            FieldMapping("test2.xlsx", "test2.xlsx", "account_name", "户名", "direct"),
-            FieldMapping("test2.xlsx", "test2.xlsx", "transaction_date", "交易日期", "direct"),
-            FieldMapping("test2.xlsx", "test2.xlsx", "transaction_amount", "交易金额", "direct"),
-            FieldMapping("test2.xlsx", "test2.xlsx", "balance", "账户余额", "direct")
-        ]
-        
-        for mapping in mappings:
-            field_manager.add_field_mapping(mapping)
-        
         # 创建数据处理器
-        processor = DataProcessor(field_manager, header_detector)
+        header_detector = HeaderDetector()
+        processor = DataProcessor(header_detector)
         
         # 测试单文件处理
         print("测试单文件处理...")

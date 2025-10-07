@@ -43,7 +43,7 @@ class HeaderDetector:
         # 余额列关键词
         self.balance_keywords = [
             "余额", "结余", "balance", "结存", "可用余额", "账户余额",
-            "当前余额", "余额金额", "账户结余", "资金余额"
+            "当前余额", "余额金额", "账户结余", "资金余额", "联机余额"
         ]
         
         # 日期列关键词
@@ -62,6 +62,12 @@ class HeaderDetector:
         self.account_keywords = [
             "账户", "账号", "account", "卡号", "户名", "账户名称",
             "客户名称", "户主姓名"
+        ]
+        
+        # 分页符关键词 - 包含这些关键词的行将被过滤
+        self.page_break_keywords = [
+            "查询编号", "对公往来户明细表", "分页", "第", "页", "共",
+            "页次", "页码"
         ]
         
         # 表头识别模式
@@ -100,19 +106,22 @@ class HeaderDetector:
             if df.empty:
                 return None
             
+            # 过滤分页符行
+            df_filtered = self._filter_page_breaks(df)
+            
             # 寻找表头行
-            header_row = self._find_header_row(df)
+            header_row = self._find_header_row(df_filtered)
             if header_row is None:
                 return None
             
             # 获取列名
-            columns = df.iloc[header_row].astype(str).tolist()
+            columns = df_filtered.iloc[header_row].astype(str).tolist()
             
             # 识别余额列
             balance_columns = self._identify_balance_columns(columns)
             
             # 计算置信度
-            confidence = self._calculate_confidence(df, header_row, columns, balance_columns)
+            confidence = self._calculate_confidence(df_filtered, header_row, columns, balance_columns)
             
             # 确定数据开始行
             data_start_row = header_row + 1
@@ -133,10 +142,71 @@ class HeaderDetector:
             return None
     
     def _find_header_row(self, df: pd.DataFrame) -> Optional[int]:
-        """寻找表头行"""
-        # 方法1: 寻找包含最多文本的行
+        """寻找表头行 - 只返回第一个有效表头"""
+        # 方法1: 寻找包含余额关键词的行（优先级最高）
+        for i in range(min(15, len(df))):  # 检查前15行
+            row = df.iloc[i]
+            row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
+            
+            # 检查是否包含余额关键词
+            balance_keyword_count = 0
+            for keyword in self.balance_keywords:
+                if keyword in row_text:
+                    balance_keyword_count += 1
+            
+            # 如果包含余额关键词，很可能是表头
+            if balance_keyword_count > 0:
+                # 进一步验证：检查是否包含其他表头关键词
+                other_keyword_count = 0
+                for keyword in self.date_keywords + self.amount_keywords + self.account_keywords:
+                    if keyword in row_text:
+                        other_keyword_count += 1
+                
+                # 如果包含余额关键词且至少包含1个其他关键词，认为是有效表头
+                if other_keyword_count >= 1:
+                    return i
+        
+        # 方法2: 寻找包含最多关键词的行
+        best_row = None
+        best_score = 0
+        
+        for i in range(min(15, len(df))):
+            row = df.iloc[i]
+            row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
+            
+            # 计算关键词匹配分数
+            keyword_count = 0
+            for keyword in self.balance_keywords + self.date_keywords + self.amount_keywords + self.account_keywords:
+                if keyword in row_text:
+                    keyword_count += 1
+            
+            # 如果包含多个关键词，认为是有效表头
+            if keyword_count >= 2:
+                if keyword_count > best_score:
+                    best_score = keyword_count
+                    best_row = i
+        
+        if best_row is not None:
+            return best_row
+        
+        # 方法3: 寻找包含银行常见字段的行（新增）
+        bank_keywords = ['账号', '账户名称', '交易时间', '交易金额', '余额', '对方账号', '对方户名', '摘要', '业务类型', '序号', '过账日期', '借方发生额', '贷方发生额', '币种', '凭证号']
+        for i in range(min(15, len(df))):
+            row = df.iloc[i]
+            row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
+            
+            bank_keyword_count = 0
+            for keyword in bank_keywords:
+                if keyword in row_text:
+                    bank_keyword_count += 1
+            
+            # 如果包含多个银行常见字段，认为是有效表头
+            if bank_keyword_count >= 3:
+                return i
+        
+        # 方法4: 寻找包含最多文本的行
         text_scores = []
-        for i in range(min(10, len(df))):  # 只检查前10行
+        for i in range(min(10, len(df))):
             row = df.iloc[i]
             text_count = sum(1 for cell in row if isinstance(cell, str) and cell.strip())
             text_scores.append(text_count)
@@ -146,21 +216,7 @@ class HeaderDetector:
             if text_scores[max_text_row] > 0:
                 return max_text_row
         
-        # 方法2: 寻找包含关键词的行
-        for i in range(min(10, len(df))):
-            row = df.iloc[i]
-            row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
-            
-            # 检查是否包含表头关键词
-            keyword_count = 0
-            for keyword in self.balance_keywords + self.date_keywords + self.amount_keywords + self.account_keywords:
-                if keyword in row_text:
-                    keyword_count += 1
-            
-            if keyword_count >= 2:  # 至少包含2个关键词
-                return i
-        
-        # 方法3: 默认使用第一行
+        # 方法4: 默认使用第一行
         return 0
     
     def _identify_balance_columns(self, columns: List[str]) -> List[str]:
@@ -235,6 +291,45 @@ class HeaderDetector:
             confidence += 0.2 * min(keyword_matches / 5, 1.0)
         
         return min(confidence, 1.0)
+    
+    def _filter_page_breaks(self, df: pd.DataFrame) -> pd.DataFrame:
+        """过滤分页符行"""
+        if df.empty:
+            return df
+        
+        # 创建过滤后的DataFrame
+        filtered_rows = []
+        
+        for index, row in df.iterrows():
+            # 将行数据转换为字符串并连接
+            row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
+            
+            # 检查是否包含分页符关键词
+            is_page_break = False
+            for keyword in self.page_break_keywords:
+                if keyword in row_text:
+                    is_page_break = True
+                    break
+            
+            # 如果不是分页符行，则保留
+            if not is_page_break:
+                filtered_rows.append(row)
+        
+        if filtered_rows:
+            return pd.DataFrame(filtered_rows).reset_index(drop=True)
+        else:
+            return df
+    
+    def _is_page_break_row(self, row_text: str) -> bool:
+        """判断是否为分页符行"""
+        row_lower = row_text.lower()
+        
+        # 检查是否包含分页符关键词
+        for keyword in self.page_break_keywords:
+            if keyword in row_lower:
+                return True
+        
+        return False
     
     def analyze_column(self, df: pd.DataFrame, column_name: str, start_row: int = 0) -> ColumnInfo:
         """分析单个列的信息"""

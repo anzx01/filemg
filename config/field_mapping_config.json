@@ -1,290 +1,322 @@
 {
-  "standard_fields": [
+  "D:/sjdataapp/AI比赛测试数据\\北京银行.xlsx": [
     {
-      "name": "account_number",
-      "display_name": "账户号码",
-      "data_type": "string",
-      "required": true,
-      "description": "银行账户号码"
+      "standard_field": "交易时间",
+      "imported_column": "日期",
+      "is_mapped": true
     },
     {
-      "name": "account_name",
-      "display_name": "账户名称",
-      "data_type": "string",
-      "required": true,
-      "description": "账户持有人姓名"
+      "standard_field": "收入",
+      "imported_column": "借方金额",
+      "is_mapped": true
     },
     {
-      "name": "transaction_date",
-      "display_name": "交易日期",
-      "data_type": "date",
-      "required": true,
-      "description": "交易发生日期"
+      "standard_field": "支出",
+      "imported_column": "贷方金额",
+      "is_mapped": true
     },
     {
-      "name": "transaction_amount",
-      "display_name": "交易金额",
-      "data_type": "number",
-      "required": true,
-      "description": "交易金额"
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
     },
     {
-      "name": "balance",
-      "display_name": "余额",
-      "data_type": "number",
-      "required": true,
-      "description": "账户余额"
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
     },
     {
-      "name": "transaction_type",
-      "display_name": "交易类型",
-      "data_type": "string",
-      "required": false,
-      "description": "交易类型（收入/支出）"
-    },
-    {
-      "name": "description",
-      "display_name": "交易描述",
-      "data_type": "string",
-      "required": false,
-      "description": "交易描述信息"
-    },
-    {
-      "name": "reference_number",
-      "display_name": "参考号",
-      "data_type": "string",
-      "required": false,
-      "description": "交易参考号码"
-    },
-    {
-      "name": "bank_name",
-      "display_name": "银行名称",
-      "data_type": "string",
-      "required": false,
-      "description": "银行名称"
-    },
-    {
-      "name": "currency",
-      "display_name": "币种",
-      "data_type": "string",
-      "required": false,
-      "description": "货币类型"
-    },
-    {
-      "name": "收入",
-      "display_name": "收入",
-      "data_type": "string",
-      "required": false,
-      "description": ""
+      "standard_field": "对方户名",
+      "imported_column": "交易对手（账号或户名）／现金附言",
+      "is_mapped": true
     }
   ],
-  "field_mappings": [
+  "D:/sjdataapp/AI比赛测试数据\\工商银行.xlsx": [
     {
-      "file_id": "银行A.xlsx",
-      "file_name": "银行A.xlsx",
-      "standard_field": "account_number",
-      "file_field": "账户号码",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
+      "standard_field": "交易时间",
+      "imported_column": "入帐日期",
+      "is_mapped": true
     },
     {
-      "file_id": "银行A.xlsx",
-      "file_name": "银行A.xlsx",
-      "standard_field": "account_name",
-      "file_field": "户名",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行A.xlsx",
-      "file_name": "银行A.xlsx",
-      "standard_field": "transaction_date",
-      "file_field": "交易日期",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行A.xlsx",
-      "file_name": "银行A.xlsx",
-      "standard_field": "transaction_amount",
-      "file_field": "交易金额",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行A.xlsx",
-      "file_name": "银行A.xlsx",
-      "standard_field": "balance",
-      "file_field": "账户余额",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行A.xlsx",
-      "file_name": "银行A.xlsx",
-      "standard_field": "description",
-      "file_field": "备注",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行B.xlsx",
-      "file_name": "银行B.xlsx",
-      "standard_field": "account_number",
-      "file_field": "账户号码",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行B.xlsx",
-      "file_name": "银行B.xlsx",
-      "standard_field": "account_name",
-      "file_field": "户名",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行B.xlsx",
-      "file_name": "银行B.xlsx",
-      "standard_field": "transaction_date",
-      "file_field": "交易日期",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行B.xlsx",
-      "file_name": "银行B.xlsx",
-      "standard_field": "transaction_amount",
-      "file_field": "交易金额",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行B.xlsx",
-      "file_name": "银行B.xlsx",
-      "standard_field": "balance",
-      "file_field": "账户余额",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "银行B.xlsx",
-      "file_name": "银行B.xlsx",
-      "standard_field": "description",
-      "file_field": "备注",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "账户号码",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "账户名称",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "交易日期",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "交易金额",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "余额",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "交易类型",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "交易描述",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "参考号",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "银行名称",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
-      "standard_field": "币种",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
-    },
-    {
-      "file_id": "北京银行.xlsx",
-      "file_name": "",
       "standard_field": "收入",
-      "file_field": "    对账单       按日期查询",
-      "mapping_type": "direct",
-      "transform_rule": "",
-      "is_active": true
+      "imported_column": "发生额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "发生额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\华夏银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "过账日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "发生额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "发生额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名（或商户名称）",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\建设银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "记账日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "贷方发生额（收入）",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "借方发生额（支取）",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "摘要",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\浦发银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "交易日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "贷方金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "借方金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\兴业银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "交易时间",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "贷方金额（收入）",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "借方金额（支出）",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "账户余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\邮储银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "交易日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "贷方金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "借方金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\长安银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "交易日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "交易金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "交易金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "账户余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "交易对手信息",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\招商银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "交易日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "交昜金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "交昜金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "联机余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "文字摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对手名称",
+      "is_mapped": true
+    }
+  ],
+  "D:/sjdataapp/AI比赛测试数据\\中国银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "交易日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "收入金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "支出金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "账户余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "交易摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名",
+      "is_mapped": true
     }
   ]
 }
