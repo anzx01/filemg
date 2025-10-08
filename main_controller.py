@@ -27,7 +27,7 @@ class ExcelMergeController:
         self.file_operations = FileOperations()
         self.header_detector = HeaderDetector()
         self.special_rules_manager = SpecialRulesManager()
-        self.data_processor = DataProcessor(self.header_detector)
+        self.data_processor = DataProcessor(self.header_detector, self.special_rules_manager)
         self.ui = None
         self.config_dir = "config"
         self.output_dir = "output"
@@ -168,8 +168,15 @@ class ExcelMergeController:
             映射关系列表
         """
         try:
+            # 首先尝试直接匹配文件名
             if file_name in self.mapping_config:
                 return self.mapping_config[file_name]
+            
+            # 如果直接匹配失败，尝试通过路径匹配
+            for config_key in self.mapping_config.keys():
+                if file_name in config_key or config_key.endswith(file_name):
+                    return self.mapping_config[config_key]
+            
             return []
             
         except Exception as e:

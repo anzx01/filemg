@@ -31,46 +31,59 @@ class RuleParser:
         self.rules = []
         self.bank_specific_rules = self._initialize_bank_rules()
         self.keyword_patterns = self._initialize_keyword_patterns()
+        self.bank_rules_config = self._load_bank_rules_config()
         
     def _initialize_bank_rules(self) -> Dict[str, Dict]:
         """初始化银行特定规则模板"""
         return {
             "北京银行": {
-                "date_range": {
-                    "keywords": ["日期范围", "时间范围", "起止日期"],
-                    "pattern": r"(\d{4}[-/]\d{1,2}[-/]\d{1,2})\s*至\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
-                    "description": "处理北京银行的日期范围规则"
+                "date_range_processing": {
+                    "keywords": ["从第二行获取日期范围", "与月日数据合并", "交易日期"],
+                    "pattern": r"从第二行获取日期范围.*?存入合并文件标准字段交易日期",
+                    "description": "处理北京银行的日期范围规则：从第二行获取日期范围，与月日数据合并"
                 },
-                "balance_calculation": {
-                    "keywords": ["余额计算", "余额统计"],
-                    "pattern": r"余额\s*([+-]?)\s*(\d+(?:\.\d+)?)",
-                    "description": "处理余额计算规则"
+                "date_merge": {
+                    "keywords": ["日期合并", "月日数据"],
+                    "pattern": r"与月日数据合并",
+                    "description": "处理日期与月日数据合并"
                 }
             },
             "工商银行": {
                 "balance_processing": {
-                    "keywords": ["余额处理", "余额转换"],
-                    "pattern": r"余额\s*([+-]?)\s*(\d+(?:\.\d+)?)",
-                    "description": "处理工商银行余额规则"
+                    "keywords": ["借贷标志字段", "发生额", "收入或支出", "贷为收入", "借为支出"],
+                    "pattern": r"根据借贷标志字段.*?存入合并文件标准字段收入或支出.*?贷为收入.*?借为支出",
+                    "description": "处理工商银行借贷标志字段规则"
                 },
-                "page_break": {
-                    "keywords": ["分页符", "分页处理"],
-                    "pattern": r"分页符\s*(\d+)",
-                    "description": "处理分页符规则"
+                "page_break_processing": {
+                    "keywords": ["查询编号", "对公往来户明细表", "分页符"],
+                    "pattern": r"包含查询编号或对公往来户明细表字符的行为分页符",
+                    "description": "处理工商银行分页符规则"
+                },
+                "header_processing": {
+                    "keywords": ["有效表头", "列名", "分页符"],
+                    "pattern": r"只有开始一个包含列名的有效表头.*?其他表头不在导出文档体现",
+                    "description": "处理工商银行表头规则"
                 }
             },
             "华夏银行": {
-                "income_expense": {
-                    "keywords": ["收支分类", "收入支出"],
-                    "pattern": r"(收入|支出)\s*(\d+(?:\.\d+)?)",
-                    "description": "处理收支分类规则"
+                "income_expense_processing": {
+                    "keywords": ["借贷标志字段", "发生额", "收入或支出", "贷为收入", "借为支出"],
+                    "pattern": r"根据借贷标志字段.*?存入合并文件标准字段收入或支出.*?贷为收入.*?借为支出",
+                    "description": "处理华夏银行借贷标志字段规则"
                 }
             },
             "长安银行": {
-                "income_expense": {
-                    "keywords": ["收支分类", "收入支出"],
-                    "pattern": r"(收入|支出)\s*(\d+(?:\.\d+)?)",
-                    "description": "处理收支分类规则"
+                "income_expense_processing": {
+                    "keywords": ["借/贷字段", "交易金额", "收入或支出", "贷为收入", "借为支出"],
+                    "pattern": r"根据借/贷字段.*?存入合并文件标准字段收入或支出.*?贷为收入.*?借为支出",
+                    "description": "处理长安银行借/贷字段规则"
+                }
+            },
+            "招商银行": {
+                "sign_processing": {
+                    "keywords": ["交易金额", "正负号", "正数为收入", "负数为支出"],
+                    "pattern": r"根据.*?交易金额.*?字段的正负号.*?正数为收入.*?负数为支出",
+                    "description": "处理招商银行交易金额正负号规则"
                 }
             }
         }
@@ -84,6 +97,20 @@ class RuleParser:
             "操作": r"(增加|减少|计算|统计|处理|转换|分类)",
             "字段": r"(账户|余额|金额|日期|时间|描述|备注)"
         }
+    
+    def _load_bank_rules_config(self) -> List[Dict[str, Any]]:
+        """加载银行规则配置"""
+        try:
+            import os
+            config_path = os.path.join("config", "bank_rules_config.json")
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                    return config_data.get("bank_rules", [])
+            return []
+        except Exception as e:
+            logger.error(f"加载银行规则配置失败: {str(e)}")
+            return []
     
     def parse_natural_language_rule(self, rule_text: str, bank_name: str = None) -> Dict[str, Any]:
         """解析自然语言规则
@@ -172,7 +199,19 @@ class RuleParser:
             str: 规则类型
         """
         # 基于关键词识别规则类型
-        if any("日期" in kw for kw in keywords):
+        if any("日期范围" in kw for kw in keywords) or "从第二行获取日期范围" in text:
+            return "date_range_processing"
+        elif any("借贷标志" in kw for kw in keywords) or "借贷标志字段" in text:
+            return "balance_processing"
+        elif any("借/贷" in kw for kw in keywords) or "借/贷字段" in text:
+            return "income_expense_processing"
+        elif any("正负号" in kw for kw in keywords) or "交易金额" in text:
+            return "sign_processing"
+        elif any("分页符" in kw for kw in keywords) or "查询编号" in text:
+            return "page_break_processing"
+        elif any("表头" in kw for kw in keywords) or "有效表头" in text:
+            return "header_processing"
+        elif any("日期" in kw for kw in keywords):
             return "date_range"
         elif any("余额" in kw for kw in keywords):
             return "balance_processing"
@@ -198,7 +237,19 @@ class RuleParser:
         """
         parameters = {}
         
-        if rule_type == "date_range":
+        if rule_type == "date_range_processing":
+            parameters = self._parse_date_range_processing_rule(text)
+        elif rule_type == "balance_processing":
+            parameters = self._parse_balance_processing_rule(text)
+        elif rule_type == "income_expense_processing":
+            parameters = self._parse_income_expense_processing_rule(text)
+        elif rule_type == "sign_processing":
+            parameters = self._parse_sign_processing_rule(text)
+        elif rule_type == "page_break_processing":
+            parameters = self._parse_page_break_processing_rule(text)
+        elif rule_type == "header_processing":
+            parameters = self._parse_header_processing_rule(text)
+        elif rule_type == "date_range":
             parameters = self._parse_date_range_rule(text)
         elif rule_type == "balance_processing":
             parameters = self._parse_balance_rule(text)
@@ -369,17 +420,44 @@ class RuleParser:
             rule_type = rule.get("type")
             parameters = rule.get("parameters", {})
             
-            if rule_type == "date_range":
-                return self._apply_date_range_rule(data, parameters)
+            if rule_type == "date_range_processing":
+                logger.info(f"应用日期范围处理规则: {rule['id']}")
+                return self._apply_date_range_processing_rule(data, parameters)
             elif rule_type == "balance_processing":
-                return self._apply_balance_rule(data, parameters)
+                logger.info(f"应用余额处理规则: {rule['id']}")
+                return self._apply_balance_processing_rule(data, parameters)
+            elif rule_type == "income_expense_processing":
+                logger.info(f"应用收支处理规则: {rule['id']}")
+                return self._apply_income_expense_processing_rule(data, parameters)
+            elif rule_type == "sign_processing":
+                logger.info(f"应用正负号处理规则: {rule['id']}")
+                return self._apply_sign_processing_rule(data, parameters)
+            elif rule_type == "debit_credit_processing":
+                logger.info(f"应用借贷标志处理规则: {rule['id']}")
+                return self._apply_debit_credit_processing_rule(data, parameters)
+            elif rule_type == "debit_credit_field_processing":
+                logger.info(f"应用借/贷字段处理规则: {rule['id']}")
+                return self._apply_debit_credit_field_processing_rule(data, parameters)
+            elif rule_type == "page_break_processing":
+                logger.info(f"应用分页符处理规则: {rule['id']}")
+                return self._apply_page_break_processing_rule(data, parameters)
+            elif rule_type == "header_processing":
+                logger.info(f"应用表头处理规则: {rule['id']}")
+                return self._apply_header_processing_rule(data, parameters)
+            elif rule_type == "date_range":
+                logger.info(f"应用日期范围规则: {rule['id']}")
+                return self._apply_date_range_rule(data, parameters)
             elif rule_type == "income_expense":
+                logger.info(f"应用收支规则: {rule['id']}")
                 return self._apply_income_expense_rule(data, parameters)
             elif rule_type == "page_break":
+                logger.info(f"应用分页规则: {rule['id']}")
                 return self._apply_page_break_rule(data, parameters)
             elif rule_type == "field_mapping":
+                logger.info(f"应用字段映射规则: {rule['id']}")
                 return self._apply_field_mapping_rule(data, parameters)
             else:
+                logger.warning(f"未知规则类型: {rule_type}, 规则ID: {rule['id']}")
                 return data
                 
         except Exception as e:
@@ -468,6 +546,17 @@ class RuleParser:
         """获取所有规则"""
         return self.rules
     
+    def get_bank_rules(self) -> List[Dict[str, Any]]:
+        """获取银行规则配置"""
+        return self.bank_rules_config
+    
+    def get_bank_rule_by_file(self, filename: str) -> Optional[Dict[str, Any]]:
+        """根据文件名获取银行规则"""
+        for rule in self.bank_rules_config:
+            if rule.get("file_pattern") in filename:
+                return rule
+        return None
+    
     def get_rule_by_id(self, rule_id: str) -> Optional[Dict[str, Any]]:
         """根据ID获取规则"""
         for rule in self.rules:
@@ -511,6 +600,60 @@ class RuleParser:
             logger.error(f"加载规则失败: {str(e)}")
             return False
     
+    def _parse_date_range_processing_rule(self, text: str) -> Dict[str, Any]:
+        """解析北京银行日期范围处理规则"""
+        return {
+            "source_row": 2,  # 从第二行获取
+            "target_field": "交易日期",
+            "merge_with_date": True,
+            "description": "从第二行获取日期范围，与月日数据合并"
+        }
+    
+    def _parse_balance_processing_rule(self, text: str) -> Dict[str, Any]:
+        """解析工商银行/华夏银行借贷标志处理规则"""
+        return {
+            "source_field": "借贷标志字段",
+            "target_field": "收入或支出",
+            "debit_mapping": "借为支出",
+            "credit_mapping": "贷为收入",
+            "amount_field": "发生额"
+        }
+    
+    def _parse_income_expense_processing_rule(self, text: str) -> Dict[str, Any]:
+        """解析长安银行借/贷字段处理规则"""
+        return {
+            "source_field": "借/贷字段",
+            "target_field": "收入或支出",
+            "debit_mapping": "借为支出",
+            "credit_mapping": "贷为收入",
+            "amount_field": "交易金额"
+        }
+    
+    def _parse_sign_processing_rule(self, text: str) -> Dict[str, Any]:
+        """解析招商银行正负号处理规则"""
+        return {
+            "source_field": "交易金额",
+            "target_field": "收入或支出",
+            "positive_mapping": "正数为收入",
+            "negative_mapping": "负数为支出"
+        }
+    
+    def _parse_page_break_processing_rule(self, text: str) -> Dict[str, Any]:
+        """解析工商银行分页符处理规则"""
+        return {
+            "break_keywords": ["查询编号", "对公往来户明细表"],
+            "exclude_break_rows": True,
+            "description": "包含查询编号或对公往来户明细表字符的行为分页符"
+        }
+    
+    def _parse_header_processing_rule(self, text: str) -> Dict[str, Any]:
+        """解析工商银行表头处理规则"""
+        return {
+            "valid_header_row": 1,  # 只有开始一个包含列名的有效表头
+            "exclude_other_headers": True,
+            "description": "只有开始一个包含列名的有效表头，其他表头不在导出文档体现"
+        }
+    
     def validate_rule(self, rule: Dict[str, Any]) -> Tuple[bool, List[str]]:
         """验证规则有效性"""
         errors = []
@@ -527,6 +670,316 @@ class RuleParser:
                 errors.append("日期范围规则缺少开始或结束日期")
         
         return len(errors) == 0, errors
+    
+    def _apply_date_range_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用北京银行日期范围处理规则"""
+        try:
+            # 从第二行获取日期范围
+            source_row = parameters.get("source_row", 2)
+            target_field = parameters.get("target_field", "交易日期")
+            
+            if len(data) >= source_row:
+                # 获取第二行的日期信息
+                date_info = data.iloc[source_row - 1]  # 第二行（索引为1）
+                
+                # 查找日期相关列
+                date_columns = [col for col in data.columns if "日期" in col or "date" in col.lower()]
+                
+                if date_columns:
+                    # 将日期信息应用到所有行
+                    for col in date_columns:
+                        if pd.notna(date_info.get(col)):
+                            data[target_field] = date_info[col]
+                            break
+            
+            return data
+        except Exception as e:
+            logger.error(f"应用日期范围处理规则失败: {str(e)}")
+            return data
+    
+    def _apply_balance_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用工商银行/华夏银行借贷标志处理规则"""
+        try:
+            source_field = parameters.get("source_field", "借贷标志字段")
+            target_field = parameters.get("target_field", "收入或支出")
+            amount_field = parameters.get("amount_field", "发生额")
+            
+            # 查找借贷标志列
+            balance_columns = [col for col in data.columns if "借贷" in col or "标志" in col]
+            amount_columns = [col for col in data.columns if "发生" in col or "金额" in col]
+            
+            if balance_columns and amount_columns:
+                balance_col = balance_columns[0]
+                amount_col = amount_columns[0]
+                
+                # 根据借贷标志处理收入支出
+                def process_income(row):
+                    balance_flag = str(row[balance_col]).strip()
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    
+                    if "贷" in balance_flag:
+                        return abs(amount)  # 收入为正数
+                    else:
+                        return 0  # 非收入为0
+                
+                def process_expense(row):
+                    balance_flag = str(row[balance_col]).strip()
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    
+                    if "借" in balance_flag:
+                        return abs(amount)  # 支出为正数
+                    else:
+                        return 0  # 非支出为0
+                
+                # 创建收入和支出两个字段
+                data["收入"] = data.apply(process_income, axis=1)
+                data["支出"] = data.apply(process_expense, axis=1)
+                
+                # 删除原始的借贷标志和发生额列
+                if balance_col in data.columns:
+                    data = data.drop(columns=[balance_col])
+                if amount_col in data.columns:
+                    data = data.drop(columns=[amount_col])
+            
+            return data
+        except Exception as e:
+            logger.error(f"应用借贷标志处理规则失败: {str(e)}")
+            return data
+    
+    def _apply_income_expense_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用长安银行借/贷字段处理规则"""
+        try:
+            # 获取新的参数格式
+            balance_field = parameters.get("balance_field", "借/贷")
+            amount_field = parameters.get("amount_field", "交易金额")
+            income_field = parameters.get("income_field", "收入")
+            expense_field = parameters.get("expense_field", "支出")
+            debit_value = parameters.get("debit_value", "借")
+            credit_value = parameters.get("credit_value", "贷")
+            
+            # 查找借/贷字段列
+            balance_columns = [col for col in data.columns if "借" in col and "贷" in col]
+            # 更灵活地匹配金额字段，支持繁体字和简体字
+            amount_columns = [col for col in data.columns if ("交易" in col or "交昜" in col) and "金额" in col]
+            
+            if balance_columns and amount_columns:
+                balance_col = balance_columns[0]
+                amount_col = amount_columns[0]
+                
+                # 根据借/贷字段处理收入支出
+                def process_income(row):
+                    balance_flag = str(row[balance_col]).strip()
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    
+                    if credit_value in balance_flag:
+                        return abs(amount)  # 贷为收入
+                    else:
+                        return 0  # 非收入为0
+                
+                def process_expense(row):
+                    balance_flag = str(row[balance_col]).strip()
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    
+                    if debit_value in balance_flag:
+                        return abs(amount)  # 借为支出
+                    else:
+                        return 0  # 非支出为0
+                
+                # 创建收入和支出两个字段
+                data[income_field] = data.apply(process_income, axis=1)
+                data[expense_field] = data.apply(process_expense, axis=1)
+                
+                logger.info(f"成功创建字段: {income_field} 和 {expense_field}")
+            
+            return data
+        except Exception as e:
+            logger.error(f"应用借/贷字段处理规则失败: {str(e)}")
+            return data
+    
+    def _apply_sign_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用招商银行正负号处理规则"""
+        try:
+            source_field = parameters.get("source_field", "交易金额")
+            target_field = parameters.get("target_field", "收入或支出")
+            
+            # 查找交易金额列
+            amount_columns = [col for col in data.columns if "交易" in col and "金额" in col]
+            
+            if amount_columns:
+                amount_col = amount_columns[0]
+                
+                # 根据正负号处理收入支出
+                def process_income(row):
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    if amount > 0:
+                        return abs(amount)  # 正数为收入
+                    else:
+                        return 0  # 非收入为0
+                
+                def process_expense(row):
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    if amount < 0:
+                        return abs(amount)  # 负数为支出
+                    else:
+                        return 0  # 非支出为0
+                
+                # 创建收入和支出两个字段
+                data["收入"] = data.apply(process_income, axis=1)
+                data["支出"] = data.apply(process_expense, axis=1)
+            
+            return data
+        except Exception as e:
+            logger.error(f"应用正负号处理规则失败: {str(e)}")
+            return data
+    
+    def _apply_page_break_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用工商银行分页符处理规则"""
+        try:
+            break_keywords = parameters.get("break_keywords", ["查询编号", "对公往来户明细表"])
+            exclude_break_rows = parameters.get("exclude_break_rows", True)
+            
+            if exclude_break_rows:
+                # 查找包含分页符关键词的行
+                mask = pd.Series([True] * len(data))
+                
+                for col in data.columns:
+                    for keyword in break_keywords:
+                        mask &= ~data[col].astype(str).str.contains(keyword, na=False)
+                
+                return data[mask]
+            
+            return data
+        except Exception as e:
+            logger.error(f"应用分页符处理规则失败: {str(e)}")
+            return data
+    
+    def _apply_header_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用工商银行表头处理规则"""
+        try:
+            valid_header_row = parameters.get("valid_header_row", 1)
+            exclude_other_headers = parameters.get("exclude_other_headers", True)
+            
+            if exclude_other_headers:
+                # 只保留第一个有效表头，移除其他表头行
+                # 这里假设数据已经正确加载，只处理数据内容
+                pass
+            
+            return data
+        except Exception as e:
+            logger.error(f"应用表头处理规则失败: {str(e)}")
+            return data
+    
+    def _apply_debit_credit_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用借贷标志处理规则（工商银行、华夏银行）"""
+        try:
+            logger.info("应用借贷标志处理规则")
+            
+            # 获取参数
+            source_field = parameters.get("source_field", "借贷标志")
+            target_field = parameters.get("target_field", "收入或支出")
+            amount_field = parameters.get("amount_field", "发生额")
+            mapping = parameters.get("mapping", {"贷": "收入", "借": "支出"})
+            
+            # 检查必要字段是否存在
+            if source_field not in data.columns:
+                logger.warning(f"源字段 {source_field} 不存在")
+                return data
+            
+            if amount_field not in data.columns:
+                logger.warning(f"金额字段 {amount_field} 不存在")
+                return data
+            
+            # 创建收入支出列
+            result_data = data.copy()
+            result_data["收入"] = 0.0
+            result_data["支出"] = 0.0
+            
+            # 处理借贷标志
+            for idx, row in result_data.iterrows():
+                debit_credit = str(row[source_field]).strip()
+                amount = float(row[amount_field]) if pd.notna(row[amount_field]) else 0.0
+                
+                if debit_credit in mapping:
+                    if mapping[debit_credit] == "收入":
+                        result_data.at[idx, "收入"] = amount
+                    elif mapping[debit_credit] == "支出":
+                        result_data.at[idx, "支出"] = amount
+            
+            logger.info(f"借贷标志处理完成，处理了 {len(result_data)} 条记录")
+            return result_data
+            
+        except Exception as e:
+            logger.error(f"应用借贷标志处理规则失败: {str(e)}")
+            return data
+    
+    def _apply_debit_credit_field_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用借/贷字段处理规则（长安银行）"""
+        try:
+            logger.info("应用借/贷字段处理规则")
+            
+            # 获取参数
+            source_field = parameters.get("source_field", "借/贷")
+            amount_fields = parameters.get("amount_fields", ["交易金额"])
+            target_field = parameters.get("target_field", "收入或支出")
+            mapping = parameters.get("mapping", {"贷": "收入", "借": "支出"})
+            
+            # 检查必要字段是否存在
+            if source_field not in data.columns:
+                logger.warning(f"源字段 {source_field} 不存在")
+                return data
+            
+            # 查找可用的金额字段
+            available_amount_field = None
+            for field in amount_fields:
+                if field in data.columns:
+                    available_amount_field = field
+                    break
+            
+            if not available_amount_field:
+                logger.warning(f"未找到可用的金额字段: {amount_fields}")
+                return data
+            
+            # 创建收入支出列
+            result_data = data.copy()
+            result_data["收入"] = 0.0
+            result_data["支出"] = 0.0
+            
+            # 处理借/贷字段
+            for idx, row in result_data.iterrows():
+                debit_credit = str(row[source_field]).strip()
+                amount = float(row[available_amount_field]) if pd.notna(row[available_amount_field]) else 0.0
+                
+                if debit_credit in mapping:
+                    if mapping[debit_credit] == "收入":
+                        result_data.at[idx, "收入"] = amount
+                    elif mapping[debit_credit] == "支出":
+                        result_data.at[idx, "支出"] = amount
+            
+            logger.info(f"借/贷字段处理完成，处理了 {len(result_data)} 条记录")
+            return result_data
+            
+        except Exception as e:
+            logger.error(f"应用借/贷字段处理规则失败: {str(e)}")
+            return data
+
+    def apply_icbc_rules(self, data: pd.DataFrame) -> pd.DataFrame:
+        """应用工商银行特定规则到数据"""
+        try:
+            # 工商银行规则参数
+            parameters = {
+                "source_field": "借贷标志字段",
+                "target_field": "收入或支出", 
+                "amount_field": "发生额"
+            }
+            
+            # 应用工商银行/华夏银行借贷标志处理规则
+            processed_data = self._apply_balance_processing_rule(data, parameters)
+            
+            return processed_data
+            
+        except Exception as e:
+            logger.error(f"应用工商银行规则失败: {str(e)}")
+            return data
 
 
 # 测试代码

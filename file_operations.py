@@ -81,6 +81,9 @@ class FileOperations:
             if output_dir and not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             
+            # 处理空值，使用更强健的方法
+            df = self._clean_nan_values(df)
+            
             # 写入Excel文件
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name=sheet_name, index=index)
@@ -286,11 +289,75 @@ class FileOperations:
             # 清理列名
             df.columns = [str(col).strip() for col in df.columns]
             
+            # 处理空值，使用更强健的方法
+            df = self._clean_nan_values(df)
+            
             return df
             
         except Exception as e:
             print(f"清理数据失败: {e}")
             return df
+    
+    def _clean_nan_values(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        清理DataFrame中的nan值，使用更强健的方法
+        
+        Args:
+            df: 要清理的DataFrame
+            
+        Returns:
+            清理后的DataFrame
+        """
+        try:
+            import numpy as np
+            
+            # 创建副本避免修改原始数据
+            df_cleaned = df.copy()
+            
+            # 方法1: 逐列处理，根据数据类型使用不同的替换策略
+            for col in df_cleaned.columns:
+                if df_cleaned[col].dtype == 'object':
+                    # 字符串列：替换所有nan值为空字符串
+                    df_cleaned[col] = df_cleaned[col].fillna("")
+                    # 额外处理可能的字符串形式的nan
+                    df_cleaned[col] = df_cleaned[col].replace(['nan', 'NaN', 'None', 'null'], "")
+                else:
+                    # 数值列：替换nan值为0
+                    df_cleaned[col] = df_cleaned[col].fillna(0)
+            
+            # 方法2: 使用replace处理所有可能的nan值表示
+            df_cleaned = df_cleaned.replace([np.nan, None, 'nan', 'NaN', 'None', 'null'], "")
+            
+            # 方法3: 对每个单元格进行最终检查和处理
+            for col in df_cleaned.columns:
+                df_cleaned[col] = df_cleaned[col].apply(
+                    lambda x: "" if pd.isna(x) or x is None or str(x).lower() in ['nan', 'none', 'null'] else x
+                )
+            
+            # 方法4: 强制类型转换，确保没有nan值
+            for col in df_cleaned.columns:
+                if df_cleaned[col].dtype == 'object':
+                    df_cleaned[col] = df_cleaned[col].astype(str)
+                    df_cleaned[col] = df_cleaned[col].replace(['nan', 'NaN', 'None', 'null'], "")
+                else:
+                    df_cleaned[col] = pd.to_numeric(df_cleaned[col], errors='coerce').fillna(0)
+            
+            # 最终验证
+            if df_cleaned.isnull().any().any():
+                print("警告: 仍然存在nan值，使用强制替换")
+                df_cleaned = df_cleaned.fillna("")
+                # 最后的强制处理
+                for col in df_cleaned.columns:
+                    df_cleaned[col] = df_cleaned[col].apply(
+                        lambda x: "" if pd.isna(x) else str(x) if str(x).lower() not in ['nan', 'none', 'null'] else ""
+                    )
+            
+            return df_cleaned
+            
+        except Exception as e:
+            print(f"清理nan值失败: {e}")
+            # 如果清理失败，使用最基本的fillna方法
+            return df.fillna("")
     
     def validate_excel_structure(self, file_path: str) -> Dict[str, Any]:
         """

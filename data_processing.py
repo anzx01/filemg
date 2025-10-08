@@ -12,6 +12,8 @@ from datetime import datetime
 import re
 
 from header_detection import HeaderDetector, HeaderInfo
+from special_rules import SpecialRulesManager
+from rule_parser import RuleParser
 
 
 @dataclass
@@ -39,9 +41,11 @@ class MergeResult:
 class DataProcessor:
     """数据处理器"""
     
-    def __init__(self, header_detector: HeaderDetector):
+    def __init__(self, header_detector: HeaderDetector, special_rules_manager: SpecialRulesManager = None):
         """初始化数据处理器"""
         self.header_detector = header_detector
+        self.special_rules_manager = special_rules_manager or SpecialRulesManager()
+        self.rule_parser = RuleParser()
         
         # 数据类型转换规则
         self.data_type_converters = {
@@ -67,6 +71,71 @@ class DataProcessor:
         """转换为布尔类型"""
         return data.astype(bool)
     
+    def _apply_field_mapping(self, data: pd.DataFrame, file_path: str) -> Tuple[pd.DataFrame, Dict[str, str]]:
+        """应用字段映射配置"""
+        try:
+            import json
+            import os
+            
+            # 加载字段映射配置
+            config_file = "config/field_mapping_config.json"
+            if not os.path.exists(config_file):
+                return data, {}
+            
+            with open(config_file, 'r', encoding='utf-8') as f:
+                mapping_config = json.load(f)
+            
+            # 查找匹配的映射配置，优先使用完整路径匹配
+            mappings = None
+            
+            # 1. 尝试完整路径匹配
+            if file_path in mapping_config:
+                mappings = mapping_config[file_path]
+                print(f"找到完整路径匹配的映射配置: {file_path}")
+            
+            # 2. 尝试标准化路径匹配
+            if not mappings:
+                normalized_file_path = os.path.normpath(file_path)
+                for config_key in mapping_config.keys():
+                    if os.path.normpath(config_key) == normalized_file_path:
+                        mappings = mapping_config[config_key]
+                        print(f"找到标准化路径匹配的映射配置: {config_key}")
+                        break
+            
+            # 3. 尝试文件名匹配（兼容旧配置）
+            if not mappings:
+                file_name = os.path.basename(file_path)
+                for config_key in mapping_config.keys():
+                    if file_name in config_key or config_key.endswith(file_name):
+                        mappings = mapping_config[config_key]
+                        print(f"找到文件名匹配的映射配置: {config_key}")
+                        break
+            
+            if not mappings:
+                print(f"未找到字段映射配置: {file_name}")
+                return data, {}
+            
+            # 应用字段映射
+            mapped_data = data.copy()
+            mapped_columns = {}
+            
+            for mapping in mappings:
+                if mapping.get("is_mapped", False):
+                    standard_field = mapping.get("standard_field")
+                    imported_column = mapping.get("imported_column")
+                    
+                    if standard_field and imported_column and imported_column in data.columns:
+                        # 将原始列映射到标准字段
+                        mapped_data[standard_field] = data[imported_column]
+                        mapped_columns[imported_column] = standard_field
+                        print(f"字段映射: {imported_column} -> {standard_field}")
+            
+            return mapped_data, mapped_columns
+            
+        except Exception as e:
+            print(f"应用字段映射失败: {e}")
+            return data, {}
+    
     def process_file(self, file_path: str, sheet_name: Optional[str] = None) -> Optional[ProcessedData]:
         """处理单个文件"""
         try:
@@ -90,18 +159,38 @@ class DataProcessor:
             
             # 重新设置表头
             if header.header_row < len(df):
-                df.columns = df.iloc[header.header_row]
-                df = df.iloc[header.header_row + 1:].reset_index(drop=True)
+                # 使用表头检测器检测到的列名
+                columns = header.columns.copy()
+                
+                # 处理重复列名
+                processed_columns = []
+                column_counts = {}
+                for col in columns:
+                    if pd.isna(col):
+                        col_name = f"Unnamed_{len(processed_columns)}"
+                    else:
+                        col_name = str(col)
+                        if col_name in column_counts:
+                            column_counts[col_name] += 1
+                            col_name = f"{col_name}_{column_counts[col_name]}"
+                        else:
+                            column_counts[col_name] = 1
+                    processed_columns.append(col_name)
+                
+                df.columns = processed_columns
+                df = df.iloc[header.data_start_row:].reset_index(drop=True)
             
             # 清理数据
             df = self._clean_data(df)
             
-            # 直接使用原始数据，不进行字段映射
-            mapped_data = df
-            mapped_columns = {}
+            # 应用字段映射配置
+            mapped_data, mapped_columns = self._apply_field_mapping(df, file_path)
             
             # 识别余额列
             balance_columns = self._identify_balance_columns(mapped_data, header.balance_columns)
+            
+            # 应用银行规则
+            mapped_data = self.apply_bank_rules(mapped_data, file_name)
             
             # 创建处理信息
             processing_info = {
@@ -137,6 +226,9 @@ class DataProcessor:
         # 过滤分页符行
         df = self._filter_page_breaks(df)
         
+        # 过滤只有日期的行
+        df = self._filter_date_only_rows(df)
+        
         # 重置索引
         df = df.reset_index(drop=True)
         
@@ -144,7 +236,14 @@ class DataProcessor:
         for col in df.columns:
             if df[col].dtype == 'object':
                 df[col] = df[col].astype(str).str.strip()
-                df[col] = df[col].replace('', np.nan)
+                # 不将空字符串替换为nan，保持为空字符串
+                # df[col] = df[col].replace('', np.nan)
+        
+        # 处理日期格式，去除时间部分
+        df = self._format_date_columns(df)
+        
+        # 过滤重复表头
+        df = self._filter_duplicate_headers(df)
         
         return df
     
@@ -182,6 +281,128 @@ class DataProcessor:
         else:
             return df
     
+    def _filter_date_only_rows(self, df: pd.DataFrame) -> pd.DataFrame:
+        """过滤只有日期没有其他数据的行"""
+        if df.empty:
+            return df
+        
+        try:
+            # 创建过滤后的DataFrame
+            filtered_rows = []
+            
+            for index, row in df.iterrows():
+                # 检查该行是否只有日期数据
+                if self._is_date_only_row(row):
+                    print(f"过滤只有日期的行 {index}: {row.to_dict()}")
+                    continue  # 跳过这行
+                else:
+                    filtered_rows.append(row)
+            
+            if filtered_rows:
+                return pd.DataFrame(filtered_rows).reset_index(drop=True)
+            else:
+                return df
+                
+        except Exception as e:
+            print(f"过滤只有日期的行失败: {e}")
+            return df
+    
+    def _is_date_only_row(self, row: pd.Series) -> bool:
+        """判断行是否只有日期数据（只要日期列不为空，其他列为空，就不导入）"""
+        try:
+            # 统计非空值
+            non_empty_values = []
+            for value in row:
+                if pd.notna(value) and str(value).strip() != '':
+                    non_empty_values.append(str(value).strip())
+            
+            # 如果没有非空值，不是日期行
+            if len(non_empty_values) == 0:
+                return False
+            
+            # 如果只有一个非空值，检查是否为日期
+            if len(non_empty_values) == 1:
+                return self._is_date_value(non_empty_values[0]) or self._is_date_like_value(non_empty_values[0])
+            
+            # 如果有多个非空值，检查是否所有值都是日期相关格式
+            date_count = 0
+            for value in non_empty_values:
+                if self._is_date_value(value) or self._is_date_like_value(value):
+                    date_count += 1
+            
+            # 如果所有非空值都是日期或日期相关格式，则认为是只有日期的行
+            return date_count == len(non_empty_values)
+            
+        except Exception as e:
+            print(f"判断日期行失败: {e}")
+            return False
+    
+    def _is_date_value(self, value: str) -> bool:
+        """判断值是否为日期格式"""
+        try:
+            value_str = str(value).strip()
+            
+            # 如果值太短或太长，不太可能是日期
+            if len(value_str) < 4 or len(value_str) > 20:
+                return False
+            
+            # 常见的日期格式模式
+            date_patterns = [
+                r'^\d{4}[-/]\d{1,2}[-/]\d{1,2}$',  # YYYY-MM-DD, YYYY/MM/DD
+                r'^\d{1,2}[-/]\d{1,2}[-/]\d{4}$',  # MM-DD-YYYY, MM/DD/YYYY
+                r'^\d{4}\d{2}\d{2}$',              # YYYYMMDD
+                r'^\d{2}\d{2}\d{4}$',              # MMDDYYYY
+                r'^\d{4}年\d{1,2}月\d{1,2}日$',      # 中文日期格式
+                r'^\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{1,2}:\d{1,2}$',  # 带时间的日期
+                r'^\d{4}/\d{1,2}/\d{1,2}\s+\d{1,2}:\d{1,2}:\d{1,2}$',   # 带时间的日期
+            ]
+            
+            # 检查是否匹配日期模式
+            for pattern in date_patterns:
+                if re.match(pattern, value_str):
+                    return True
+            
+            # 尝试用pandas解析日期，但要求更严格
+            try:
+                parsed_date = pd.to_datetime(value_str)
+                # 检查解析后的日期是否合理（在1900-2100年之间）
+                if 1900 <= parsed_date.year <= 2100:
+                    return True
+            except:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            return False
+    
+    def _is_date_like_value(self, value: str) -> bool:
+        """判断值是否为日期相关格式（更宽松的检测）"""
+        try:
+            value_str = str(value).strip()
+            
+            # 如果值太短，不太可能是日期
+            if len(value_str) < 2:
+                return False
+            
+            # 检查是否包含日期相关的关键词
+            date_keywords = ['年', '月', '日', '-', '/', '日期', '时间']
+            if any(keyword in value_str for keyword in date_keywords):
+                return True
+            
+            # 检查是否为纯数字且长度在4-8位之间（可能是日期格式）
+            if value_str.isdigit() and 4 <= len(value_str) <= 8:
+                return True
+            
+            # 检查是否包含数字和分隔符的组合
+            if re.match(r'^\d+[-/]\d+[-/]?\d*$', value_str):
+                return True
+            
+            return False
+            
+        except Exception as e:
+            return False
+    
     def _identify_balance_columns(self, df: pd.DataFrame, detected_balance_columns: List[str]) -> List[str]:
         """识别余额列"""
         balance_columns = []
@@ -210,6 +431,107 @@ class DataProcessor:
         
         return False
     
+    def _format_date_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """格式化日期列，统一日期格式为YYYY-MM-DD"""
+        try:
+            # 查找日期相关列
+            date_columns = [col for col in df.columns if "日期" in col or "时间" in col or "date" in col.lower()]
+            
+            for col in date_columns:
+                if col in df.columns:
+                    # 处理日期格式，统一为YYYY-MM-DD格式
+                    df[col] = df[col].apply(self._format_date_value)
+            
+            return df
+        except Exception as e:
+            print(f"格式化日期列失败: {e}")
+            return df
+    
+    def _format_date_value(self, value):
+        """格式化单个日期值，统一为YYYY-MM-DD格式"""
+        try:
+            if pd.isna(value) or str(value).strip() == '' or str(value).strip() == 'nan':
+                return value
+            
+            value_str = str(value).strip()
+            
+            # 尝试解析并统一日期格式
+            try:
+                # 解析为datetime对象
+                if ' ' in value_str:
+                    # 包含时间的日期，只取日期部分
+                    date_part = value_str.split(' ')[0]
+                    dt = pd.to_datetime(date_part)
+                else:
+                    # 只有日期
+                    dt = pd.to_datetime(value_str)
+                
+                # 统一格式为YYYY-MM-DD
+                return dt.strftime('%Y-%m-%d')
+                
+            except Exception as e:
+                # 如果解析失败，尝试其他常见格式
+                try:
+                    # 尝试常见的日期格式
+                    common_formats = [
+                        '%Y-%m-%d',
+                        '%Y/%m/%d', 
+                        '%Y.%m.%d',
+                        '%m/%d/%Y',
+                        '%d/%m/%Y',
+                        '%Y年%m月%d日',
+                        '%Y-%m-%d %H:%M:%S',
+                        '%Y/%m/%d %H:%M:%S'
+                    ]
+                    
+                    for fmt in common_formats:
+                        try:
+                            dt = pd.to_datetime(value_str, format=fmt)
+                            return dt.strftime('%Y-%m-%d')
+                        except:
+                            continue
+                    
+                    # 如果所有格式都失败，返回原值
+                    return value_str
+                    
+                except Exception:
+                    return value_str
+                
+        except Exception:
+            return value
+    
+    def _filter_duplicate_headers(self, df: pd.DataFrame) -> pd.DataFrame:
+        """过滤重复表头，只保留第一个有效表头"""
+        try:
+            if df.empty:
+                return df
+            
+            # 表头关键词
+            header_keywords = [
+                "交易日期", "交易时间", "日期", "时间", "收入", "支出", "余额", 
+                "摘要", "对方户名", "交易对手", "金额", "借方", "贷方"
+            ]
+            
+            # 查找可能的表头行
+            header_rows = []
+            for idx, row in df.iterrows():
+                row_str = " ".join(str(cell) for cell in row if pd.notna(cell))
+                # 检查是否包含表头关键词
+                keyword_count = sum(1 for keyword in header_keywords if keyword in row_str)
+                if keyword_count >= 3:  # 包含至少3个表头关键词
+                    header_rows.append(idx)
+            
+            # 如果找到多个表头行，删除除第一个之外的所有表头行
+            if len(header_rows) > 1:
+                rows_to_remove = header_rows[1:]  # 保留第一个表头，删除其余的
+                df = df.drop(rows_to_remove).reset_index(drop=True)
+                print(f"删除了 {len(rows_to_remove)} 个重复表头行")
+            
+            return df
+        except Exception as e:
+            print(f"过滤重复表头失败: {e}")
+            return df
+    
     def merge_files(self, file_paths: List[str], output_path: str) -> Optional[MergeResult]:
         """合并多个文件"""
         try:
@@ -229,8 +551,16 @@ class DataProcessor:
             # 合并数据
             merged_data = self._merge_processed_data(processed_files)
             
-            # 保存合并后的数据
-            merged_data.to_excel(output_path, index=False)
+            # 应用特殊规则
+            merged_data = self._apply_special_rules(merged_data, file_paths)
+            
+            # 保存合并后的数据，使用FileOperations确保空值处理
+            from file_operations import FileOperations
+            file_ops = FileOperations()
+            success = file_ops.write_excel_file(merged_data, output_path, '合并结果', False)
+            
+            if not success:
+                raise Exception("保存Excel文件失败")
             
             # 计算处理时间
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -277,12 +607,58 @@ class DataProcessor:
             # 确保所有列都存在
             for col in all_columns:
                 if col not in file_data.columns:
-                    file_data[col] = np.nan
+                    file_data[col] = ""
             
             # 合并数据
             merged_data = pd.concat([merged_data, file_data], ignore_index=True)
         
+        # 处理空值，使用更强健的方法
+        merged_data = self._clean_nan_values(merged_data)
+        
         return merged_data
+    
+    def _clean_nan_values(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        清理DataFrame中的nan值，使用更强健的方法
+        
+        Args:
+            df: 要清理的DataFrame
+            
+        Returns:
+            清理后的DataFrame
+        """
+        try:
+            # 方法1: 使用fillna("")
+            df_cleaned = df.fillna("")
+            
+            # 方法2: 对每个列进行额外的nan值检查和处理
+            for col in df_cleaned.columns:
+                # 检查是否还有nan值
+                if df_cleaned[col].isnull().any():
+                    # 使用apply方法确保所有nan值都被替换
+                    df_cleaned[col] = df_cleaned[col].apply(
+                        lambda x: "" if pd.isna(x) or x is None else x
+                    )
+            
+            # 方法3: 使用replace方法处理可能遗漏的nan值
+            df_cleaned = df_cleaned.replace([np.nan, None, 'nan', 'NaN'], "")
+            
+            # 最终检查
+            if df_cleaned.isnull().any().any():
+                print("警告: 仍然存在nan值，使用强制替换")
+                df_cleaned = df_cleaned.fillna("")
+                # 对每个单元格进行最终检查
+                for col in df_cleaned.columns:
+                    df_cleaned[col] = df_cleaned[col].apply(
+                        lambda x: "" if pd.isna(x) else str(x) if x != "nan" else ""
+                    )
+            
+            return df_cleaned
+            
+        except Exception as e:
+            print(f"清理nan值失败: {e}")
+            # 如果清理失败，至少使用基本的fillna方法
+            return df.fillna("")
     
     def validate_merged_data(self, merged_data: pd.DataFrame) -> Tuple[bool, List[str]]:
         """验证合并后的数据"""
@@ -371,6 +747,398 @@ class DataProcessor:
         except Exception as e:
             print(f"导出处理日志失败: {e}")
             return False
+    
+    def _apply_special_rules(self, data: pd.DataFrame, file_paths: List[str]) -> pd.DataFrame:
+        """应用特殊规则到合并后的数据"""
+        try:
+            if not self.special_rules_manager:
+                return data
+            
+            # 获取所有活跃规则
+            rules = self.special_rules_manager.get_rules()
+            active_rules = [rule for rule in rules if rule.get("status") == "active"]
+            
+            if not active_rules:
+                print("没有活跃的特殊规则")
+                return data
+            
+            print(f"找到 {len(active_rules)} 个活跃规则")
+            
+            # 按银行分组应用规则
+            result_data = data.copy()
+            
+            for rule in active_rules:
+                bank_name = rule.get("bank_name")
+                if bank_name:
+                    print(f"检查银行规则: {bank_name}")
+                    # 检查是否有该银行的文件
+                    bank_files = [fp for fp in file_paths if bank_name in os.path.basename(fp)]
+                    if bank_files:
+                        print(f"找到 {bank_name} 文件: {bank_files}")
+                        print(f"应用规则: {rule['id']} - {rule['type']}")
+                        # 应用该银行的规则
+                        result_data = self.special_rules_manager.apply_rules(
+                            result_data, bank_name, [rule["id"]]
+                        )
+                        print(f"已应用 {bank_name} 规则")
+                    else:
+                        print(f"未找到 {bank_name} 文件")
+                else:
+                    # 如果没有指定银行，应用通用规则
+                    print(f"应用通用规则: {rule.get('id')}")
+                    result_data = self.special_rules_manager.apply_rules(
+                        result_data, None, [rule["id"]]
+                    )
+            
+            return result_data
+            
+        except Exception as e:
+            print(f"应用特殊规则失败: {e}")
+            return data
+    
+    def apply_bank_rules(self, data: pd.DataFrame, file_name: str) -> pd.DataFrame:
+        """应用银行特定规则到数据"""
+        try:
+            # 获取银行规则
+            bank_rule = self.rule_parser.get_bank_rule_by_file(file_name)
+            
+            if not bank_rule:
+                return data
+            
+            processed_data = data.copy()
+            
+            # 根据规则类型应用不同的处理逻辑
+            rule_type = bank_rule.get("type")
+            parameters = bank_rule.get("parameters", {})
+            
+            if rule_type == "date_range_processing":
+                processed_data = self._apply_beijing_bank_rule(processed_data, parameters)
+            elif rule_type == "balance_processing":
+                # 根据银行名称选择不同的处理逻辑
+                if "浦发银行" in file_name or "兴业银行" in file_name:
+                    processed_data = self._apply_spdb_cib_bank_rule(processed_data, parameters)
+                else:
+                    processed_data = self._apply_icbc_hx_bank_rule(processed_data, parameters)
+            elif rule_type == "income_expense_processing":
+                processed_data = self._apply_ca_bank_rule(processed_data, parameters)
+            elif rule_type == "sign_processing":
+                processed_data = self._apply_cmb_bank_rule(processed_data, parameters)
+            
+            return processed_data
+            
+        except Exception as e:
+            print(f"应用银行规则失败: {str(e)}")
+            return data
+    
+    def apply_icbc_rules(self, data: pd.DataFrame) -> pd.DataFrame:
+        """应用工商银行特定规则到数据"""
+        try:
+            # 工商银行规则参数
+            parameters = {
+                "source_field": "借贷标志字段",
+                "target_field": "收入或支出", 
+                "amount_field": "发生额"
+            }
+            
+            # 应用工商银行/华夏银行借贷标志处理规则
+            processed_data = self._apply_icbc_hx_bank_rule(data, parameters)
+            
+            return processed_data
+            
+        except Exception as e:
+            print(f"应用工商银行规则失败: {str(e)}")
+            return data
+    
+    def _apply_beijing_bank_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用北京银行日期范围处理规则"""
+        try:
+            source_row = parameters.get("source_row", 2)
+            target_field = parameters.get("target_field", "交易日期")
+            
+            if len(data) >= source_row:
+                # 获取第二行的日期信息
+                date_info = data.iloc[source_row - 1]  # 第二行（索引为1）
+                
+                # 查找日期相关列
+                date_columns = [col for col in data.columns if "日期" in col or "date" in col.lower()]
+                
+                if date_columns:
+                    # 将日期信息应用到所有行
+                    for col in date_columns:
+                        if pd.notna(date_info.get(col)):
+                            data[target_field] = date_info[col]
+                            break
+            
+            # 过滤掉日期字段不为空但其他字段为空的记录
+            if len(data) > 0:
+                # 获取所有列名
+                all_columns = data.columns.tolist()
+                
+                # 找到日期相关的列（可能包含"日期"、"时间"、"date"等关键词）
+                date_columns = [col for col in all_columns if any(keyword in col.lower() for keyword in ['日期', '时间', 'date', 'time'])]
+                
+                if date_columns:
+                    # 创建过滤条件：日期字段不为空 且 其他字段都为空
+                    date_not_empty = data[date_columns].notna().any(axis=1)  # 任一日期字段不为空
+                    other_columns = [col for col in all_columns if col not in date_columns]
+                    
+                    if other_columns:
+                        other_all_empty = data[other_columns].isna().all(axis=1)  # 其他字段都为空
+                        # 过滤掉日期不为空但其他字段都为空的行
+                        filter_condition = ~(date_not_empty & other_all_empty)
+                        data = data[filter_condition]
+                        filtered_count = (~filter_condition).sum()
+                        if filtered_count > 0:
+                            print(f"北京银行数据已过滤掉{filtered_count}行日期不为空但其他字段为空的记录")
+            
+            return data
+        except Exception as e:
+            print(f"应用北京银行规则失败: {str(e)}")
+            return data
+    
+    def _apply_icbc_hx_bank_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用工商银行/华夏银行借贷标志处理规则"""
+        try:
+            source_field = parameters.get("source_field", "借贷标志字段")
+            target_field = parameters.get("target_field", "收入或支出")
+            amount_field = parameters.get("amount_field", "发生额")
+            
+            # 查找借贷标志列
+            balance_columns = [col for col in data.columns if "借贷" in col or "标志" in col]
+            amount_columns = [col for col in data.columns if "发生" in col or "金额" in col]
+            
+            if balance_columns and amount_columns:
+                balance_col = balance_columns[0]
+                amount_col = amount_columns[0]
+                
+                # 根据借贷标志处理收入支出
+                def process_income(row):
+                    balance_flag = str(row[balance_col]).strip()
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    
+                    if "贷" in balance_flag:
+                        return abs(amount)  # 收入为正数
+                    else:
+                        return 0  # 非收入为0
+                
+                def process_expense(row):
+                    balance_flag = str(row[balance_col]).strip()
+                    amount = float(row[amount_col]) if pd.notna(row[amount_col]) else 0
+                    
+                    if "借" in balance_flag:
+                        return abs(amount)  # 支出为正数
+                    else:
+                        return 0  # 非支出为0
+                
+                # 创建收入和支出两个字段
+                data["收入"] = data.apply(process_income, axis=1)
+                data["支出"] = data.apply(process_expense, axis=1)
+                
+                # 删除原始的借贷标志和发生额列
+                if balance_col in data.columns:
+                    data = data.drop(columns=[balance_col])
+                if amount_col in data.columns:
+                    data = data.drop(columns=[amount_col])
+            
+            return data
+        except Exception as e:
+            print(f"应用工商银行/华夏银行规则失败: {str(e)}")
+            return data
+    
+    def _apply_ca_bank_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用长安银行借/贷字段处理规则"""
+        try:
+            source_field = parameters.get("source_field", "借/贷字段")
+            target_field = parameters.get("target_field", "收入或支出")
+            amount_field = parameters.get("amount_field", "交易金额")
+            
+            # 查找借/贷字段列
+            balance_columns = [col for col in data.columns if "借" in col and "贷" in col]
+            # 查找可用的金额字段
+            amount_fields = ["交易金额", "交昜金额"]
+            amount_columns = []
+            for field in amount_fields:
+                if field in data.columns:
+                    amount_columns.append(field)
+            
+            if balance_columns and amount_columns:
+                balance_col = balance_columns[0]
+                amount_col = amount_columns[0]
+                
+                # 先清理表头行 - 删除包含"借/贷"或"交易金额"的行
+                print("应用长安银行特殊规则...")
+                
+                # 查找并删除表头行
+                header_rows = []
+                for idx, row in data.iterrows():
+                    balance_flag = str(row[balance_col]).strip()
+                    amount_str = str(row[amount_col]).strip()
+                    
+                    # 如果借/贷字段或交易金额字段包含表头文本，标记为表头行
+                    if (balance_flag == "借/贷" or balance_flag == "交易金额" or 
+                        amount_str == "交易金额" or amount_str == "借/贷"):
+                        header_rows.append(idx)
+                
+                if header_rows:
+                    print(f"发现表头行 {len(header_rows)} 个，删除中...")
+                    data = data.drop(header_rows).reset_index(drop=True)
+                
+                # 根据借/贷字段处理收入支出
+                def process_income(row):
+                    try:
+                        balance_flag = str(row[balance_col]).strip()
+                        amount_str = str(row[amount_col]).strip()
+                        
+                        # 跳过空值和无效值
+                        if (amount_str == "" or amount_str == "nan" or amount_str == "None" or
+                            balance_flag == "" or balance_flag == "nan" or balance_flag == "None"):
+                            return 0
+                        
+                        amount = float(amount_str)
+                        
+                        if "贷" in balance_flag:
+                            return abs(amount)  # 收入为正数
+                        else:
+                            return 0  # 非收入为0
+                    except (ValueError, TypeError) as e:
+                        return 0
+                
+                def process_expense(row):
+                    try:
+                        balance_flag = str(row[balance_col]).strip()
+                        amount_str = str(row[amount_col]).strip()
+                        
+                        # 跳过空值和无效值
+                        if (amount_str == "" or amount_str == "nan" or amount_str == "None" or
+                            balance_flag == "" or balance_flag == "nan" or balance_flag == "None"):
+                            return 0
+                        
+                        amount = float(amount_str)
+                        
+                        if "借" in balance_flag:
+                            return abs(amount)  # 支出为正数
+                        else:
+                            return 0  # 非支出为0
+                    except (ValueError, TypeError) as e:
+                        return 0
+                
+                # 创建收入和支出两个字段
+                data["收入"] = data.apply(process_income, axis=1)
+                data["支出"] = data.apply(process_expense, axis=1)
+                
+                # 统计收入支出记录数
+                income_count = (data["收入"] > 0).sum()
+                expense_count = (data["支出"] > 0).sum()
+                print(f"长安银行规则应用完成，收入记录数: {income_count}, 支出记录数: {expense_count}")
+            
+            return data
+        except Exception as e:
+            print(f"应用长安银行规则失败: {str(e)}")
+            return data
+    
+    def _apply_cmb_bank_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用招商银行正负号处理规则"""
+        try:
+            source_field = parameters.get("source_field", "交易金额")
+            
+            # 查找交易金额列
+            amount_columns = [col for col in data.columns if "交易" in col and "金额" in col]
+            
+            if amount_columns:
+                amount_col = amount_columns[0]
+                
+                print("应用招商银行特殊规则...")
+                
+                # 根据正负号处理收入支出
+                def process_income(row):
+                    try:
+                        amount_str = str(row[amount_col]).strip()
+                        
+                        # 跳过空值和无效值
+                        if amount_str == "" or amount_str == "nan" or amount_str == "None":
+                            return 0
+                        
+                        amount = float(amount_str)
+                        
+                        if amount > 0:
+                            return abs(amount)  # 正数为收入
+                        else:
+                            return 0  # 非收入为0
+                    except (ValueError, TypeError) as e:
+                        return 0
+                
+                def process_expense(row):
+                    try:
+                        amount_str = str(row[amount_col]).strip()
+                        
+                        # 跳过空值和无效值
+                        if amount_str == "" or amount_str == "nan" or amount_str == "None":
+                            return 0
+                        
+                        amount = float(amount_str)
+                        
+                        if amount < 0:
+                            return abs(amount)  # 负数为支出
+                        else:
+                            return 0  # 非支出为0
+                    except (ValueError, TypeError) as e:
+                        return 0
+                
+                # 创建收入和支出两个字段
+                data["收入"] = data.apply(process_income, axis=1)
+                data["支出"] = data.apply(process_expense, axis=1)
+                
+                # 统计收入支出记录数
+                income_count = (data["收入"] > 0).sum()
+                expense_count = (data["支出"] > 0).sum()
+                print(f"招商银行规则应用完成，收入记录数: {income_count}, 支出记录数: {expense_count}")
+            
+            return data
+        except Exception as e:
+            print(f"应用招商银行规则失败: {str(e)}")
+            return data
+    
+    def _apply_spdb_cib_bank_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用浦发银行/兴业银行借方贷方金额处理规则"""
+        try:
+            # 查找借方金额和贷方金额列
+            debit_columns = [col for col in data.columns if "借方" in col and "金额" in col]
+            credit_columns = [col for col in data.columns if "贷方" in col and "金额" in col]
+            
+            if debit_columns and credit_columns:
+                debit_col = debit_columns[0]
+                credit_col = credit_columns[0]
+                
+                # 处理收入列（贷方金额）
+                def process_income(row):
+                    credit_amount = row[credit_col]
+                    if pd.notna(credit_amount) and str(credit_amount).strip() != '':
+                        try:
+                            return float(credit_amount)
+                        except (ValueError, TypeError):
+                            return None  # 保持空值，不填充nan
+                    return None  # 保持空值，不填充nan
+                
+                # 处理支出列（借方金额）
+                def process_expense(row):
+                    debit_amount = row[debit_col]
+                    if pd.notna(debit_amount) and str(debit_amount).strip() != '':
+                        try:
+                            return float(debit_amount)
+                        except (ValueError, TypeError):
+                            return None  # 保持空值，不填充nan
+                    return None  # 保持空值，不填充nan
+                
+                # 创建收入和支出两个字段，保持空值不填充nan
+                data["收入"] = data.apply(process_income, axis=1)
+                data["支出"] = data.apply(process_expense, axis=1)
+                
+                # 不删除原始的借方金额和贷方金额列，保持字段映射的兼容性
+            
+            return data
+        except Exception as e:
+            print(f"应用浦发银行/兴业银行规则失败: {str(e)}")
+            return data
 
 
 # 测试函数
@@ -464,15 +1232,5 @@ def test_data_processing():
         traceback.print_exc()
         return False
     
-    finally:
-        # 清理测试文件
-        try:
-            import shutil
-            if os.path.exists(test_dir):
-                shutil.rmtree(test_dir)
-        except Exception as e:
-            print(f"清理测试文件失败: {e}")
-
-
 if __name__ == "__main__":
     test_data_processing()

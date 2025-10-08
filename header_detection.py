@@ -148,6 +148,10 @@ class HeaderDetector:
             row = df.iloc[i]
             row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
             
+            # 跳过分页符行和标题行
+            if self._is_page_break_row(row_text) or self._is_title_row(row_text):
+                continue
+            
             # 检查是否包含余额关键词
             balance_keyword_count = 0
             for keyword in self.balance_keywords:
@@ -174,6 +178,10 @@ class HeaderDetector:
             row = df.iloc[i]
             row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
             
+            # 跳过分页符行和标题行
+            if self._is_page_break_row(row_text) or self._is_title_row(row_text):
+                continue
+            
             # 计算关键词匹配分数
             keyword_count = 0
             for keyword in self.balance_keywords + self.date_keywords + self.amount_keywords + self.account_keywords:
@@ -190,7 +198,7 @@ class HeaderDetector:
             return best_row
         
         # 方法3: 寻找包含银行常见字段的行（新增）
-        bank_keywords = ['账号', '账户名称', '交易时间', '交易金额', '余额', '对方账号', '对方户名', '摘要', '业务类型', '序号', '过账日期', '借方发生额', '贷方发生额', '币种', '凭证号']
+        bank_keywords = ['账号', '账户名称', '交易时间', '交易金额', '余额', '对方账号', '对方户名', '摘要', '业务类型', '序号', '过账日期', '借方发生额', '贷方发生额', '币种', '凭证号', '入帐', '入账', '日期', '时间', '代码', '柜员', '附言', '用途', '摘要']
         for i in range(min(15, len(df))):
             row = df.iloc[i]
             row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
@@ -201,7 +209,7 @@ class HeaderDetector:
                     bank_keyword_count += 1
             
             # 如果包含多个银行常见字段，认为是有效表头
-            if bank_keyword_count >= 3:
+            if bank_keyword_count >= 2:
                 return i
         
         # 方法4: 寻找包含最多文本的行
@@ -292,6 +300,27 @@ class HeaderDetector:
         
         return min(confidence, 1.0)
     
+    def _is_page_break_row(self, row_text: str) -> bool:
+        """判断是否为分页符行"""
+        for keyword in self.page_break_keywords:
+            if keyword in row_text:
+                return True
+        return False
+    
+    def _is_title_row(self, row_text: str) -> bool:
+        """判断是否为标题行（如'对公往来户明细表'）"""
+        title_keywords = [
+            '明细表', '对账单', '交易明细', '流水', '查询', '报表',
+            '往来户', '账户', '银行', '明细', '记录'
+        ]
+        
+        # 如果行文本很短且包含标题关键词，很可能是标题行
+        if len(row_text.strip()) < 50:  # 标题行通常比较短
+            for keyword in title_keywords:
+                if keyword in row_text:
+                    return True
+        return False
+    
     def _filter_page_breaks(self, df: pd.DataFrame) -> pd.DataFrame:
         """过滤分页符行"""
         if df.empty:
@@ -304,15 +333,17 @@ class HeaderDetector:
             # 将行数据转换为字符串并连接
             row_text = " ".join(str(cell) for cell in row if pd.notna(cell))
             
-            # 检查是否包含分页符关键词
+            # 检查是否包含分页符关键词或标题行
             is_page_break = False
             for keyword in self.page_break_keywords:
                 if keyword in row_text:
                     is_page_break = True
                     break
             
-            # 如果不是分页符行，则保留
-            if not is_page_break:
+            is_title = self._is_title_row(row_text)
+            
+            # 如果不是分页符行且不是标题行，则保留
+            if not is_page_break and not is_title:
                 filtered_rows.append(row)
         
         if filtered_rows:
