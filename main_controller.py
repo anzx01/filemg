@@ -16,6 +16,7 @@ from file_operations import FileOperations
 from header_detection import HeaderDetector
 from data_processing import DataProcessor
 from special_rules import SpecialRulesManager
+from resource_manager import ResourceManager
 
 
 class ExcelMergeController:
@@ -23,6 +24,7 @@ class ExcelMergeController:
     
     def __init__(self):
         """初始化控制器"""
+        self.resource_manager = ResourceManager()
         self.file_manager = FileManager()
         self.file_operations = FileOperations()
         self.header_detector = HeaderDetector()
@@ -30,7 +32,7 @@ class ExcelMergeController:
         self.data_processor = DataProcessor(self.header_detector, self.special_rules_manager)
         self.ui = None
         self.config_dir = "config"
-        self.output_dir = "output"
+        self.output_dir = self.resource_manager.get_output_directory()
         
         # 确保必要目录存在
         self._ensure_directories()
@@ -41,24 +43,42 @@ class ExcelMergeController:
     def start_application(self):
         """启动应用程序"""
         try:
+            print("正在创建用户界面...")
             # 创建用户界面
             self.ui = ExcelMergeUI()
+            print("用户界面创建成功")
             
             # 将控制器绑定到UI
             self.ui.controller = self
+            print("控制器绑定成功")
             
             # 绑定控制器方法到界面
             self._bind_ui_events()
+            print("界面事件绑定成功")
             
             # 加载已导入的文件
             self._load_imported_files()
+            print("已导入文件加载成功")
             
             # 启动界面
+            print("正在启动界面...")
             self.ui.run()
             
         except Exception as e:
             print(f"启动应用程序失败: {e}")
+            import traceback
+            traceback.print_exc()
             self._show_error_message(f"启动失败: {e}")
+            # 添加一个简单的错误显示窗口
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()  # 隐藏主窗口
+                messagebox.showerror("启动失败", f"应用程序启动失败:\n{e}")
+                root.destroy()
+            except:
+                pass
     
     def handle_file_import(self, file_paths: List[str]) -> Dict[str, Any]:
         """
@@ -275,13 +295,9 @@ class ExcelMergeController:
     def _load_configurations(self):
         """加载配置"""
         try:
-            # 加载字段映射配置
-            field_mapping_config_path = os.path.join(self.config_dir, "field_mapping_config.json")
-            self.mapping_config = self.file_operations.load_json_config(field_mapping_config_path)
-            
-            # 加载规则配置
-            rules_config_path = os.path.join(self.config_dir, "rules_config.json")
-            self.rules_config = self.file_operations.load_json_config(rules_config_path)
+            # 使用资源管理器加载配置
+            self.mapping_config = self.resource_manager.load_json_config("config/field_mapping_config.json")
+            self.rules_config = self.resource_manager.load_json_config("config/rules_config.json")
             
         except Exception as e:
             print(f"加载配置失败: {e}")

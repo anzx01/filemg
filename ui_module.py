@@ -1732,60 +1732,58 @@ class ExcelMergeUI:
             try:
                 # 提取文件名（不包含路径）
                 file_name = os.path.basename(current_file)
-                # 直接加载配置文件
-                config_file = "config/field_mapping_config.json"
-                if os.path.exists(config_file):
-                    import json
-                    with open(config_file, 'r', encoding='utf-8') as f:
-                        config_data = json.load(f)
+                # 使用资源管理器加载配置文件
+                from resource_manager import ResourceManager
+                resource_manager = ResourceManager()
+                config_data = resource_manager.load_json_config("config/field_mapping_config.json")
+                
+                # 尝试多种匹配方式
+                saved_mappings = None
+                
+                # 1. 尝试完整路径匹配
+                if current_file in config_data:
+                    saved_mappings = config_data[current_file]
+                    print(f"找到完整路径匹配的映射配置: {current_file}")
+                
+                # 2. 尝试文件名匹配
+                if not saved_mappings:
+                    for config_key in config_data.keys():
+                        if os.path.basename(config_key) == file_name:
+                            saved_mappings = config_data[config_key]
+                            print(f"找到文件名匹配的映射配置: {config_key}")
+                            break
+                
+                # 3. 尝试标准化路径匹配
+                if not saved_mappings:
+                    normalized_current = os.path.normpath(current_file)
+                    for config_key in config_data.keys():
+                        if os.path.normpath(config_key) == normalized_current:
+                            saved_mappings = config_data[config_key]
+                            print(f"找到标准化路径匹配的映射配置: {config_key}")
+                            break
+                
+                if saved_mappings:
+                    print(f"找到已保存的映射配置: {len(saved_mappings)} 个映射")
+                    # 将保存的映射配置转换为内部格式
+                    for mapping in saved_mappings:
+                        standard_field = mapping.get('standard_field', '')
+                        imported_column = mapping.get('imported_column', '')
+                        is_mapped = mapping.get('is_mapped', False)
                         
-                        # 尝试多种匹配方式
-                        saved_mappings = None
+                        # 处理字段名不一致的问题：交易日期 -> 交易时间
+                        if standard_field == '交易日期':
+                            standard_field = '交易时间'
                         
-                        # 1. 尝试完整路径匹配
-                        if current_file in config_data:
-                            saved_mappings = config_data[current_file]
-                            print(f"找到完整路径匹配的映射配置: {current_file}")
-                        
-                        # 2. 尝试文件名匹配
-                        if not saved_mappings:
-                            for config_key in config_data.keys():
-                                if os.path.basename(config_key) == file_name:
-                                    saved_mappings = config_data[config_key]
-                                    print(f"找到文件名匹配的映射配置: {config_key}")
-                                    break
-                        
-                        # 3. 尝试标准化路径匹配
-                        if not saved_mappings:
-                            normalized_current = os.path.normpath(current_file)
-                            for config_key in config_data.keys():
-                                if os.path.normpath(config_key) == normalized_current:
-                                    saved_mappings = config_data[config_key]
-                                    print(f"找到标准化路径匹配的映射配置: {config_key}")
-                                    break
-                        
-                        if saved_mappings:
-                            print(f"找到已保存的映射配置: {len(saved_mappings)} 个映射")
-                            # 将保存的映射配置转换为内部格式
-                            for mapping in saved_mappings:
-                                standard_field = mapping.get('standard_field', '')
-                                imported_column = mapping.get('imported_column', '')
-                                is_mapped = mapping.get('is_mapped', False)
-                                
-                                # 处理字段名不一致的问题：交易日期 -> 交易时间
-                                if standard_field == '交易日期':
-                                    standard_field = '交易时间'
-                                
-                                if standard_field:
-                                    if current_file not in self.field_mappings:
-                                        self.field_mappings[current_file] = {}
-                                    self.field_mappings[current_file][standard_field] = {
-                                        'imported_column': imported_column,
-                                        'is_mapped': is_mapped
-                                    }
-                                    print(f"加载映射: {standard_field} -> {imported_column} (映射: {is_mapped})")
-                        else:
-                            print(f"文件 {file_name} 没有已保存的映射配置")
+                        if standard_field:
+                            if current_file not in self.field_mappings:
+                                self.field_mappings[current_file] = {}
+                            self.field_mappings[current_file][standard_field] = {
+                                'imported_column': imported_column,
+                                'is_mapped': is_mapped
+                            }
+                            print(f"加载映射: {standard_field} -> {imported_column} (映射: {is_mapped})")
+                    else:
+                        print(f"文件 {file_name} 没有已保存的映射配置")
             except Exception as e:
                 print(f"加载映射配置时出错: {e}")
                 import traceback
@@ -2205,12 +2203,21 @@ class ExcelMergeUI:
             try:
                 import json
                 import os
+                import sys
                 
                 # 使用完整路径作为配置键，避免同名文件冲突
                 file_key = current_file
                 
+                # 确定配置目录位置（优先使用exe同目录）
+                if getattr(sys, 'frozen', False):
+                    # 打包环境：保存到exe同目录
+                    exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+                    config_dir = os.path.join(exe_dir, "config")
+                else:
+                    # 开发环境：保存到当前目录
+                    config_dir = "config"
+                
                 # 确保配置目录存在
-                config_dir = "config"
                 if not os.path.exists(config_dir):
                     os.makedirs(config_dir)
                 
@@ -2229,6 +2236,7 @@ class ExcelMergeUI:
                     json.dump(config_data, f, ensure_ascii=False, indent=2)
                 
                 self.show_message(f"字段映射配置已保存: {os.path.basename(current_file)}")
+                print(f"配置保存到: {config_file}")
                 
             except Exception as e:
                 self.show_message(f"保存字段映射配置失败: {str(e)}", "error")

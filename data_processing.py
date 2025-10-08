@@ -76,14 +76,11 @@ class DataProcessor:
         try:
             import json
             import os
+            from resource_manager import ResourceManager
             
-            # 加载字段映射配置
-            config_file = "config/field_mapping_config.json"
-            if not os.path.exists(config_file):
-                return data, {}
-            
-            with open(config_file, 'r', encoding='utf-8') as f:
-                mapping_config = json.load(f)
+            # 使用资源管理器加载字段映射配置
+            resource_manager = ResourceManager()
+            mapping_config = resource_manager.load_json_config("config/field_mapping_config.json")
             
             # 查找匹配的映射配置，优先使用完整路径匹配
             mappings = None
