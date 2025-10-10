@@ -39,7 +39,10 @@
       "processing_type": "filter",
       "description": "过滤分页符和多余表头",
       "filters": {
-        "exclude_keywords": ["查询编号", "对公往来户明细表"],
+        "exclude_keywords": [
+          "查询编号",
+          "对公往来户明细表"
+        ],
         "header_only_first": true,
         "remove_pagination": true
       }
@@ -62,7 +65,11 @@
       "processing_type": "debit_credit",
       "description": "根据借贷标志处理",
       "source_field": "借贷标志",
-      "amount_fields": ["发生额", "交易金额", "交昜金额"],
+      "amount_fields": [
+        "发生额",
+        "交易金额",
+        "交昜金额"
+      ],
       "target_field": "收入或支出",
       "mapping": {
         "贷": "收入",
@@ -87,7 +94,11 @@
       "processing_type": "debit_credit",
       "description": "根据借贷标志处理",
       "source_field": "借贷标志",
-      "amount_fields": ["发生额", "交易金额", "交昜金额"],
+      "amount_fields": [
+        "发生额",
+        "交易金额",
+        "交昜金额"
+      ],
       "target_field": "收入或支出",
       "mapping": {
         "贷": "收入",
@@ -112,7 +123,10 @@
       "processing_type": "debit_credit_field",
       "description": "根据借/贷字段处理",
       "source_field": "借/贷",
-      "amount_fields": ["交易金额", "交昜金额"],
+      "amount_fields": [
+        "交易金额",
+        "交昜金额"
+      ],
       "target_field": "收入或支出",
       "mapping": {
         "贷": "收入",
@@ -124,13 +138,14 @@
   },
   {
     "id": "cmb_sign_processing",
-    "description": "招商银行 - 根据交易金额字段的正负号，将其对应记录数据存入收入或支出（正数为收入，负数为支出）",
+    "description": "招商银行 - 根据交易金额或交昜金额字段的正负号，将其对应记录数据存入收入或支出（正数为收入，负数为支出）",
     "type": "sign_processing",
     "bank_name": "招商银行",
     "keywords": [
       "银行:招商银行",
       "处理:正负号",
       "字段:交易金额",
+      "字段:交昜金额",
       "规则:正负号处理"
     ],
     "parameters": {

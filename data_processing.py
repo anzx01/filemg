@@ -94,7 +94,8 @@ class DataProcessor:
             if not mappings:
                 normalized_file_path = os.path.normpath(file_path)
                 for config_key in mapping_config.keys():
-                    if os.path.normpath(config_key) == normalized_file_path:
+                    normalized_config = os.path.normpath(config_key)
+                    if normalized_config == normalized_file_path:
                         mappings = mapping_config[config_key]
                         print(f"找到标准化路径匹配的映射配置: {config_key}")
                         break
@@ -122,10 +123,14 @@ class DataProcessor:
                     imported_column = mapping.get("imported_column")
                     
                     if standard_field and imported_column and imported_column in data.columns:
-                        # 将原始列映射到标准字段
-                        mapped_data[standard_field] = data[imported_column]
-                        mapped_columns[imported_column] = standard_field
-                        print(f"字段映射: {imported_column} -> {standard_field}")
+                        # 检查目标字段是否已经存在（可能由规则生成）
+                        if standard_field in mapped_data.columns:
+                            print(f"字段 {standard_field} 已存在，跳过映射: {imported_column} -> {standard_field}")
+                        else:
+                            # 将原始列映射到标准字段
+                            mapped_data[standard_field] = data[imported_column]
+                            mapped_columns[imported_column] = standard_field
+                            print(f"字段映射: {imported_column} -> {standard_field}")
             
             return mapped_data, mapped_columns
             
@@ -417,6 +422,19 @@ class DataProcessor:
         
         return balance_columns
     
+    def _detect_balance_columns(self, df: pd.DataFrame) -> List[str]:
+        """检测余额列"""
+        try:
+            # 使用表头检测器检测余额列
+            balance_columns = []
+            for col in df.columns:
+                if self._is_balance_column_name(col):
+                    balance_columns.append(col)
+            return balance_columns
+        except Exception as e:
+            print(f"检测余额列失败: {e}")
+            return []
+    
     def _is_balance_column_name(self, column_name: str) -> bool:
         """判断列名是否为余额列"""
         balance_keywords = ["余额", "结余", "balance", "结存", "可用余额", "账户余额"]
@@ -534,10 +552,10 @@ class DataProcessor:
         try:
             start_time = datetime.now()
             
-            # 处理所有文件
+            # 处理所有文件（不应用字段映射，保持原始列名）
             processed_files = []
             for file_path in file_paths:
-                processed_data = self.process_file(file_path)
+                processed_data = self._process_file_without_mapping(file_path)
                 if processed_data:
                     processed_files.append(processed_data)
             
@@ -548,8 +566,14 @@ class DataProcessor:
             # 合并数据
             merged_data = self._merge_processed_data(processed_files)
             
-            # 应用特殊规则
+            # 先应用特殊规则（在字段映射之前，保持原始字段名）
             merged_data = self._apply_special_rules(merged_data, file_paths)
+            
+            # 再应用字段映射配置，统一列名
+            merged_data = self._apply_field_mapping_to_merged_data(merged_data, file_paths)
+            
+            # 最后标准化列名，确保使用标准字段
+            merged_data = self._standardize_columns(merged_data)
             
             # 保存合并后的数据，使用FileOperations确保空值处理
             from file_operations import FileOperations
@@ -761,7 +785,7 @@ class DataProcessor:
             
             print(f"找到 {len(active_rules)} 个活跃规则")
             
-            # 按银行分组应用规则
+            # 按银行分组应用规则，每个银行只处理自己的数据
             result_data = data.copy()
             
             for rule in active_rules:
@@ -773,15 +797,27 @@ class DataProcessor:
                     if bank_files:
                         print(f"找到 {bank_name} 文件: {bank_files}")
                         print(f"应用规则: {rule['id']} - {rule['type']}")
-                        # 应用该银行的规则
-                        result_data = self.special_rules_manager.apply_rules(
-                            result_data, bank_name, [rule["id"]]
-                        )
-                        print(f"已应用 {bank_name} 规则")
+                        
+                        # 只处理该银行的数据行
+                        bank_file_names = [os.path.basename(fp) for fp in bank_files]
+                        bank_mask = result_data['source_file'].isin(bank_file_names)
+                        bank_data = result_data[bank_mask].copy()
+                        
+                        if not bank_data.empty:
+                            # 应用该银行的规则到银行数据
+                            processed_bank_data = self.special_rules_manager.apply_rules(
+                                bank_data, bank_name, [rule["id"]]
+                            )
+                            
+                            # 将处理后的数据更新回原数据
+                            result_data.loc[bank_mask, processed_bank_data.columns] = processed_bank_data
+                            print(f"已应用 {bank_name} 规则，处理了 {len(bank_data)} 条记录")
+                        else:
+                            print(f"未找到 {bank_name} 的数据行")
                     else:
                         print(f"未找到 {bank_name} 文件")
                 else:
-                    # 如果没有指定银行，应用通用规则
+                    # 如果没有指定银行，应用通用规则到所有数据
                     print(f"应用通用规则: {rule.get('id')}")
                     result_data = self.special_rules_manager.apply_rules(
                         result_data, None, [rule["id"]]
@@ -1135,6 +1171,223 @@ class DataProcessor:
             return data
         except Exception as e:
             print(f"应用浦发银行/兴业银行规则失败: {str(e)}")
+            return data
+
+    def _process_file_without_mapping(self, file_path: str, sheet_name: Optional[str] = None) -> Optional[ProcessedData]:
+        """处理单个文件，不应用字段映射（保持原始列名）"""
+        try:
+            # 获取文件信息
+            file_id = os.path.basename(file_path)
+            file_name = os.path.basename(file_path)
+            
+            # 检测表头
+            headers = self.header_detector.detect_headers(file_path, sheet_name)
+            if not headers:
+                print(f"无法检测到表头: {file_path}")
+                return None
+            
+            header = headers[0] if not sheet_name else next((h for h in headers if h.sheet_name == sheet_name), headers[0])
+            
+            # 读取数据 - 使用原始数据，不指定header
+            df = pd.read_excel(file_path, sheet_name=header.sheet_name, header=None)
+            
+            # 过滤分页符行
+            df = self._filter_page_breaks(df)
+            
+            # 重新设置表头
+            if header.header_row < len(df):
+                # 使用表头检测器检测到的列名
+                columns = header.columns.copy()
+                
+                # 处理重复列名
+                processed_columns = []
+                column_counts = {}
+                for col in columns:
+                    if pd.isna(col):
+                        col_name = f"Unnamed_{len(processed_columns)}"
+                    else:
+                        col_name = str(col).strip()
+                        if col_name in column_counts:
+                            column_counts[col_name] += 1
+                            col_name = f"{col_name}_{column_counts[col_name]}"
+                        else:
+                            column_counts[col_name] = 0
+                    processed_columns.append(col_name)
+                
+                # 设置列名
+                df.columns = processed_columns
+                
+                # 删除表头行
+                df = df.iloc[header.header_row + 1:].reset_index(drop=True)
+            else:
+                print(f"表头行超出数据范围: {file_path}")
+                return None
+            
+            # 清理数据
+            df = self._clean_data(df)
+            
+            # 检测余额列
+            balance_columns = self._detect_balance_columns(df)
+            
+            # 创建处理信息
+            processing_info = {
+                "header_row": header.header_row,
+                "detected_columns": header.columns,
+                "balance_columns": balance_columns,
+                "processing_time": datetime.now().isoformat()
+            }
+            
+            return ProcessedData(
+                file_id=file_id,
+                file_name=file_name,
+                sheet_name=header.sheet_name,
+                data=df,
+                mapped_columns={},  # 不应用字段映射
+                balance_columns=balance_columns,
+                processing_info=processing_info
+            )
+            
+        except Exception as e:
+            print(f"处理文件失败 {file_path}: {e}")
+            return None
+
+    def _apply_field_mapping_to_merged_data(self, data: pd.DataFrame, file_paths: List[str]) -> pd.DataFrame:
+        """对合并后的数据应用字段映射配置，严格按照字段映射规则设置"""
+        try:
+            import json
+            import os
+            from resource_manager import ResourceManager
+            
+            # 使用资源管理器加载字段映射配置
+            resource_manager = ResourceManager()
+            mapping_config = resource_manager.load_json_config("config/field_mapping_config.json")
+            
+            if not mapping_config:
+                print("未找到字段映射配置")
+                return data
+            
+            print("配置文件加载成功: config/field_mapping_config.json")
+            
+            # 保留现有数据，只添加缺失的标准字段
+            mapped_data = data.copy()
+            standard_columns = ['source_file']  # 保留源文件列
+            
+            # 为每个源文件应用字段映射
+            for file_path in file_paths:
+                file_name = os.path.basename(file_path)
+                
+                # 查找匹配的映射配置
+                mappings = None
+                for config_key in mapping_config.keys():
+                    # 提取配置中的银行名称
+                    config_bank_name = os.path.basename(config_key).replace('.xlsx', '')
+                    # 检查文件名是否包含银行名称
+                    if config_bank_name in file_name or file_name in config_key or config_key.endswith(file_name):
+                        mappings = mapping_config[config_key]
+                        print(f"找到字段映射配置: {config_key}")
+                        break
+                
+                if not mappings:
+                    print(f"未找到字段映射配置: {file_name}")
+                    continue
+                
+                # 获取该文件的数据行索引
+                file_mask = mapped_data['source_file'] == file_name
+                if not file_mask.any():
+                    continue
+                
+                # 应用字段映射
+                for mapping in mappings:
+                    if mapping.get("is_mapped", False):
+                        standard_field = mapping.get("standard_field")
+                        imported_column = mapping.get("imported_column")
+                        
+                        if standard_field and imported_column and imported_column in data.columns:
+                            # 检查目标字段是否已经存在（可能由规则生成）
+                            if standard_field not in mapped_data.columns:
+                                # 创建新列并映射数据
+                                mapped_data[standard_field] = ""
+                                mapped_data.loc[file_mask, standard_field] = mapped_data.loc[file_mask, imported_column]
+                                print(f"字段映射: {imported_column} -> {standard_field} (文件: {file_name})")
+                            else:
+                                # 字段已存在，检查是否由规则生成（非空值）
+                                existing_values = mapped_data.loc[file_mask, standard_field]
+                                if existing_values.notna().any() and (existing_values != "").any():
+                                    print(f"字段 {standard_field} 已由规则生成，跳过映射: {imported_column} -> {standard_field} (文件: {file_name})")
+                                else:
+                                    # 字段存在但为空，进行映射
+                                    # 确保数据类型兼容
+                                    try:
+                                        mapped_data.loc[file_mask, standard_field] = mapped_data.loc[file_mask, imported_column].astype(str)
+                                        print(f"字段映射: {imported_column} -> {standard_field} (文件: {file_name})")
+                                    except Exception as e:
+                                        print(f"字段映射失败: {imported_column} -> {standard_field} (文件: {file_name}), 错误: {e}")
+                            
+                            # 记录标准字段
+                            if standard_field not in standard_columns:
+                                standard_columns.append(standard_field)
+            
+            # 确保所有标准字段都存在，缺失的用空值填充
+            for col in standard_columns:
+                if col not in mapped_data.columns:
+                    mapped_data[col] = ""
+            
+            # 添加规则生成的字段到标准字段列表
+            rule_generated_fields = ['收入', '支出']  # 规则可能生成的字段
+            for field in rule_generated_fields:
+                if field in mapped_data.columns and field not in standard_columns:
+                    standard_columns.append(field)
+            
+            # 只保留标准字段，删除原始列名
+            final_columns = [col for col in standard_columns if col != 'source_file']
+            final_columns.append('source_file')  # 保留源文件列
+            
+            # 创建只包含标准字段的最终数据框
+            final_data = mapped_data[final_columns].copy()
+            
+            print(f"字段映射完成，标准字段: {[col for col in final_columns if col != 'source_file']}")
+            return final_data
+            
+        except Exception as e:
+            print(f"应用字段映射失败: {e}")
+            return data
+
+    def _standardize_columns(self, data: pd.DataFrame) -> pd.DataFrame:
+        """标准化列名，确保使用标准字段"""
+        try:
+            # 定义标准字段映射
+            standard_fields = {
+                '交易时间': ['交易日期', '交易时间', '日期'],
+                '收入': ['收入'],
+                '支出': ['支出'],
+                '余额': ['余额', '账户余额', '联机余额'],
+                '摘要': ['摘要', '文字摘要', '备注'],
+                '对方户名': ['对方户名', '对手名称', '户名'],
+                '账户号码': ['账户号码', '账号'],
+                '账户名称': ['账户名称', '户名']
+            }
+            
+            # 创建标准化后的数据框
+            standardized_data = data.copy()
+            
+            # 为每个标准字段查找对应的列
+            for standard_field, possible_columns in standard_fields.items():
+                if standard_field not in standardized_data.columns:
+                    # 查找可能的列名
+                    for col in possible_columns:
+                        if col in standardized_data.columns:
+                            standardized_data[standard_field] = standardized_data[col]
+                            print(f"标准化字段: {col} -> {standard_field}")
+                            break
+            
+            # 保留source_file列
+            if 'source_file' not in standardized_data.columns:
+                standardized_data['source_file'] = ''
+            
+            return standardized_data
+            
+        except Exception as e:
+            print(f"标准化列名失败: {e}")
             return data
 
 

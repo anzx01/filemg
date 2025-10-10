@@ -444,6 +444,9 @@ class RuleParser:
             elif rule_type == "header_processing":
                 logger.info(f"应用表头处理规则: {rule['id']}")
                 return self._apply_header_processing_rule(data, parameters)
+            elif rule_type == "filter_processing":
+                logger.info(f"应用过滤处理规则: {rule['id']}")
+                return self._apply_filter_processing_rule(data, parameters)
             elif rule_type == "date_range":
                 logger.info(f"应用日期范围规则: {rule['id']}")
                 return self._apply_date_range_rule(data, parameters)
@@ -799,14 +802,40 @@ class RuleParser:
     def _apply_sign_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
         """应用招商银行正负号处理规则"""
         try:
+            # 支持单个字段或多个字段
+            source_fields = parameters.get("source_fields", [])
             source_field = parameters.get("source_field", "交易金额")
-            target_field = parameters.get("target_field", "收入或支出")
             
-            # 查找交易金额列
-            amount_columns = [col for col in data.columns if "交易" in col and "金额" in col]
+            # 如果source_fields存在，使用它；否则使用source_field
+            if source_fields:
+                field_candidates = source_fields
+            else:
+                field_candidates = [source_field]
             
-            if amount_columns:
-                amount_col = amount_columns[0]
+            # 查找匹配的金额列
+            amount_col = None
+            for candidate in field_candidates:
+                if candidate in data.columns:
+                    amount_col = candidate
+                    break
+            
+            # 如果直接匹配失败，尝试模糊匹配
+            if not amount_col:
+                for candidate in field_candidates:
+                    # 查找包含关键词的列
+                    matching_cols = [col for col in data.columns if candidate in col]
+                    if matching_cols:
+                        amount_col = matching_cols[0]
+                        break
+            
+            # 如果还是没找到，使用原来的逻辑
+            if not amount_col:
+                amount_columns = [col for col in data.columns if "交易" in col and "金额" in col]
+                if amount_columns:
+                    amount_col = amount_columns[0]
+            
+            if amount_col:
+                logger.info(f"使用字段 '{amount_col}' 进行正负号处理")
                 
                 # 根据正负号处理收入支出
                 def process_income(row):
@@ -826,6 +855,8 @@ class RuleParser:
                 # 创建收入和支出两个字段
                 data["收入"] = data.apply(process_income, axis=1)
                 data["支出"] = data.apply(process_expense, axis=1)
+            else:
+                logger.warning("未找到匹配的金额字段进行正负号处理")
             
             return data
         except Exception as e:
@@ -869,6 +900,69 @@ class RuleParser:
             logger.error(f"应用表头处理规则失败: {str(e)}")
             return data
     
+    def _apply_filter_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
+        """应用过滤处理规则（工商银行分页符和表头过滤）"""
+        try:
+            logger.info("应用过滤处理规则")
+            
+            # 获取过滤参数
+            filters = parameters.get("filters", {})
+            exclude_keywords = filters.get("exclude_keywords", [])
+            header_only_first = filters.get("header_only_first", False)
+            remove_pagination = filters.get("remove_pagination", False)
+            
+            result_data = data.copy()
+            
+            # 过滤包含排除关键词的行
+            if exclude_keywords:
+                for keyword in exclude_keywords:
+                    # 检查所有列是否包含关键词
+                    mask = result_data.astype(str).apply(
+                        lambda x: x.str.contains(keyword, na=False)
+                    ).any(axis=1)
+                    result_data = result_data[~mask]
+                    logger.info(f"过滤包含关键词 '{keyword}' 的行，剩余 {len(result_data)} 行")
+            
+            # 过滤分页符
+            if remove_pagination:
+                # 查找可能的分页符行（通常包含页码、分页信息等）
+                pagination_patterns = [
+                    r'第\s*\d+\s*页',
+                    r'共\s*\d+\s*页',
+                    r'页码',
+                    r'分页',
+                    r'Page\s*\d+',
+                    r'Total\s*\d+'
+                ]
+                
+                for pattern in pagination_patterns:
+                    mask = result_data.astype(str).apply(
+                        lambda x: x.str.contains(pattern, na=False, regex=True)
+                    ).any(axis=1)
+                    result_data = result_data[~mask]
+                    logger.info(f"过滤分页符模式 '{pattern}'，剩余 {len(result_data)} 行")
+            
+            # 只保留第一个表头
+            if header_only_first and len(result_data) > 1:
+                # 假设第一行是表头，查找重复的表头行
+                header_row = result_data.iloc[0]
+                duplicate_headers = []
+                
+                for idx in range(1, len(result_data)):
+                    if result_data.iloc[idx].equals(header_row):
+                        duplicate_headers.append(idx)
+                
+                if duplicate_headers:
+                    result_data = result_data.drop(duplicate_headers)
+                    logger.info(f"移除重复表头行 {duplicate_headers}，剩余 {len(result_data)} 行")
+            
+            logger.info(f"过滤处理完成，处理了 {len(result_data)} 条记录")
+            return result_data
+            
+        except Exception as e:
+            logger.error(f"应用过滤处理规则失败: {str(e)}")
+            return data
+    
     def _apply_debit_credit_processing_rule(self, data: pd.DataFrame, parameters: Dict[str, Any]) -> pd.DataFrame:
         """应用借贷标志处理规则（工商银行、华夏银行）"""
         try:
@@ -877,17 +971,50 @@ class RuleParser:
             # 获取参数
             source_field = parameters.get("source_field", "借贷标志")
             target_field = parameters.get("target_field", "收入或支出")
-            amount_field = parameters.get("amount_field", "发生额")
+            amount_fields = parameters.get("amount_fields", ["发生额"])
             mapping = parameters.get("mapping", {"贷": "收入", "借": "支出"})
             
+            # 如果amount_fields是单个字段，转换为数组
+            if isinstance(amount_fields, str):
+                amount_fields = [amount_fields]
+            
+            # 查找可用的金额字段
+            available_amount_field = None
+            for field in amount_fields:
+                if field in data.columns:
+                    available_amount_field = field
+                    break
+            
+            # 如果没找到指定的金额字段，尝试模糊匹配
+            if not available_amount_field:
+                for col in data.columns:
+                    if any(keyword in col for keyword in ["发生", "金额", "交易"]):
+                        available_amount_field = col
+                        break
+            
+            # 查找借贷标志字段
+            available_source_field = None
+            if source_field in data.columns:
+                available_source_field = source_field
+            else:
+                # 尝试模糊匹配
+                for col in data.columns:
+                    if any(keyword in col for keyword in ["借贷", "标志", "借/贷"]):
+                        available_source_field = col
+                        break
+            
             # 检查必要字段是否存在
-            if source_field not in data.columns:
-                logger.warning(f"源字段 {source_field} 不存在")
+            if not available_source_field:
+                logger.warning(f"未找到借贷标志字段，尝试的字段: {source_field}")
+                logger.warning(f"可用字段: {list(data.columns)}")
                 return data
             
-            if amount_field not in data.columns:
-                logger.warning(f"金额字段 {amount_field} 不存在")
+            if not available_amount_field:
+                logger.warning(f"未找到金额字段，尝试的字段: {amount_fields}")
+                logger.warning(f"可用字段: {list(data.columns)}")
                 return data
+            
+            logger.info(f"使用字段 - 借贷标志: {available_source_field}, 金额: {available_amount_field}")
             
             # 创建收入支出列
             result_data = data.copy()
@@ -896,8 +1023,17 @@ class RuleParser:
             
             # 处理借贷标志
             for idx, row in result_data.iterrows():
-                debit_credit = str(row[source_field]).strip()
-                amount = float(row[amount_field]) if pd.notna(row[amount_field]) else 0.0
+                debit_credit = str(row[available_source_field]).strip()
+                
+                # 安全地转换金额
+                try:
+                    amount_value = row[available_amount_field]
+                    if pd.notna(amount_value) and str(amount_value).strip() != '':
+                        amount = float(amount_value)
+                    else:
+                        amount = 0.0
+                except (ValueError, TypeError):
+                    amount = 0.0
                 
                 if debit_credit in mapping:
                     if mapping[debit_credit] == "收入":
@@ -923,10 +1059,9 @@ class RuleParser:
             target_field = parameters.get("target_field", "收入或支出")
             mapping = parameters.get("mapping", {"贷": "收入", "借": "支出"})
             
-            # 检查必要字段是否存在
-            if source_field not in data.columns:
-                logger.warning(f"源字段 {source_field} 不存在")
-                return data
+            # 如果amount_fields是单个字段，转换为数组
+            if isinstance(amount_fields, str):
+                amount_fields = [amount_fields]
             
             # 查找可用的金额字段
             available_amount_field = None
@@ -935,9 +1070,36 @@ class RuleParser:
                     available_amount_field = field
                     break
             
+            # 如果没找到指定的金额字段，尝试模糊匹配
             if not available_amount_field:
-                logger.warning(f"未找到可用的金额字段: {amount_fields}")
+                for col in data.columns:
+                    if any(keyword in col for keyword in ["交易", "金额", "发生"]):
+                        available_amount_field = col
+                        break
+            
+            # 查找借/贷字段
+            available_source_field = None
+            if source_field in data.columns:
+                available_source_field = source_field
+            else:
+                # 尝试模糊匹配
+                for col in data.columns:
+                    if any(keyword in col for keyword in ["借/贷", "借贷", "标志"]):
+                        available_source_field = col
+                        break
+            
+            # 检查必要字段是否存在
+            if not available_source_field:
+                logger.warning(f"未找到借/贷字段，尝试的字段: {source_field}")
+                logger.warning(f"可用字段: {list(data.columns)}")
                 return data
+            
+            if not available_amount_field:
+                logger.warning(f"未找到金额字段，尝试的字段: {amount_fields}")
+                logger.warning(f"可用字段: {list(data.columns)}")
+                return data
+            
+            logger.info(f"使用字段 - 借/贷: {available_source_field}, 金额: {available_amount_field}")
             
             # 创建收入支出列
             result_data = data.copy()
@@ -946,8 +1108,17 @@ class RuleParser:
             
             # 处理借/贷字段
             for idx, row in result_data.iterrows():
-                debit_credit = str(row[source_field]).strip()
-                amount = float(row[available_amount_field]) if pd.notna(row[available_amount_field]) else 0.0
+                debit_credit = str(row[available_source_field]).strip()
+                
+                # 安全地转换金额
+                try:
+                    amount_value = row[available_amount_field]
+                    if pd.notna(amount_value) and str(amount_value).strip() != '':
+                        amount = float(amount_value)
+                    else:
+                        amount = 0.0
+                except (ValueError, TypeError):
+                    amount = 0.0
                 
                 if debit_credit in mapping:
                     if mapping[debit_credit] == "收入":

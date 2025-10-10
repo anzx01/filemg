@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 import logging
 from rule_parser import RuleParser
+from llm_api import RuleLLMParser
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,7 @@ class SpecialRulesManager:
         self.config_file = config_file
         self.rules = []
         self.rule_parser = RuleParser()
+        self.llm_parser = RuleLLMParser()
         self.bank_rules = {}
         
         # 加载现有规则
@@ -101,6 +103,68 @@ class SpecialRulesManager:
                 "rule": None
             }
     
+    def add_llm_rule(self, rule_description: str, bank_name: str = None) -> Dict[str, Any]:
+        """使用LLM添加新规则
+        
+        Args:
+            rule_description: 规则描述（自然语言）
+            bank_name: 银行名称
+            
+        Returns:
+            Dict: 添加的规则对象
+        """
+        try:
+            logger.info(f"使用LLM添加新规则: {rule_description}")
+            
+            # 使用LLM解析规则
+            result = self.llm_parser.parse_natural_language_rule(rule_description, bank_name)
+            
+            if not result.get("success"):
+                logger.error(f"LLM规则解析失败: {result.get('error')}")
+                return {
+                    "success": False,
+                    "error": result.get("error"),
+                    "rule": None
+                }
+            
+            rule = result
+            
+            # 验证规则
+            is_valid, errors = self.rule_parser.validate_rule(rule)
+            if not is_valid:
+                logger.error(f"LLM规则验证失败: {errors}")
+                return {
+                    "success": False,
+                    "error": f"规则验证失败: {', '.join(errors)}",
+                    "rule": None
+                }
+            
+            # 添加到规则列表
+            self.rules.append(rule)
+            
+            # 按银行分组
+            if bank_name:
+                if bank_name not in self.bank_rules:
+                    self.bank_rules[bank_name] = []
+                self.bank_rules[bank_name].append(rule)
+            
+            # 保存规则
+            self.save_rules()
+            
+            logger.info(f"LLM规则添加成功: {rule['id']}")
+            return {
+                "success": True,
+                "rule": rule
+            }
+            
+        except Exception as e:
+            logger.error(f"添加LLM规则失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "rule": None
+            }
+    
     def remove_rule(self, rule_id: str) -> bool:
         """删除规则
         
@@ -117,6 +181,9 @@ class SpecialRulesManager:
             success = self.rule_parser.remove_rule(rule_id)
             
             if success:
+                # 从SpecialRulesManager的规则列表中删除
+                self.rules = [rule for rule in self.rules if rule["id"] != rule_id]
+                
                 # 从银行规则中删除
                 for bank_name, bank_rule_list in self.bank_rules.items():
                     self.bank_rules[bank_name] = [
@@ -287,6 +354,9 @@ class SpecialRulesManager:
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     self.rules = json.load(f)
+                
+                # 同步规则到RuleParser
+                self.rule_parser.rules = self.rules.copy()
                 
                 # 重建银行规则索引
                 self.bank_rules = {}

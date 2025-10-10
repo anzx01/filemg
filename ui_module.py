@@ -212,6 +212,10 @@ class ExcelMergeUI:
         self.imported_files = []
         self.special_rules = {}
         
+        # 初始化特殊规则管理器
+        from special_rules import SpecialRulesManager
+        self.special_rules_manager = SpecialRulesManager()
+        
         
         
         # 创建界面
@@ -723,6 +727,29 @@ class ExcelMergeUI:
         
         self.special_rules[file_name].append(new_rule_text)
         
+        # 同时添加到SpecialRulesManager中
+        if hasattr(self, 'special_rules_manager') and self.special_rules_manager:
+            try:
+                # 从文件名推断银行名称
+                bank_name = None
+                if "北京银行" in file_name:
+                    bank_name = "北京银行"
+                elif "工商银行" in file_name:
+                    bank_name = "工商银行"
+                elif "华夏银行" in file_name:
+                    bank_name = "华夏银行"
+                elif "招商银行" in file_name:
+                    bank_name = "招商银行"
+                elif "长安银行" in file_name:
+                    bank_name = "长安银行"
+                
+                if bank_name:
+                    # 添加规则到SpecialRulesManager
+                    self.special_rules_manager.add_rule(new_rule_text, bank_name)
+                    print(f"已添加规则到SpecialRulesManager: {bank_name}")
+            except Exception as e:
+                print(f"添加规则到SpecialRulesManager失败: {e}")
+        
         # 添加到Treeview显示
         item_id = self.rules_tree.insert('', 'end', values=(file_name, new_rule_text))
         
@@ -828,6 +855,36 @@ class ExcelMergeUI:
             if not self.special_rules[file_name]:  # 如果该文件没有规则了，删除文件键
                 del self.special_rules[file_name]
         
+        # 同时从SpecialRulesManager中删除规则
+        if hasattr(self, 'special_rules_manager') and self.special_rules_manager:
+            try:
+                # 从文件名推断银行名称
+                bank_name = None
+                if "北京银行" in file_name:
+                    bank_name = "北京银行"
+                elif "工商银行" in file_name:
+                    bank_name = "工商银行"
+                elif "华夏银行" in file_name:
+                    bank_name = "华夏银行"
+                elif "招商银行" in file_name:
+                    bank_name = "招商银行"
+                elif "长安银行" in file_name:
+                    bank_name = "长安银行"
+                
+                if bank_name:
+                    # 查找并删除匹配的规则
+                    rules_to_remove = []
+                    for rule in self.special_rules_manager.rules:
+                        if (rule.get("bank_name") == bank_name and 
+                            rule.get("description") == rule_text):
+                            rules_to_remove.append(rule)
+                    
+                    for rule in rules_to_remove:
+                        self.special_rules_manager.rules.remove(rule)
+                        print(f"已从SpecialRulesManager删除规则: {rule.get('id', 'unknown')}")
+            except Exception as e:
+                print(f"从SpecialRulesManager删除规则失败: {e}")
+        
         # 从Treeview中删除
         self.rules_tree.delete(item)
         self.show_message("规则删除成功")
@@ -835,15 +892,23 @@ class ExcelMergeUI:
     def save_special_rules(self):
         """保存特殊规则到文件"""
         try:
-            import json
-            import os
-            
-            # 保存到配置文件
-            config_file = "special_rules.json"
-            with open(config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.special_rules, f, ensure_ascii=False, indent=2)
-            
-            self.show_message(f"特殊规则已保存到 {config_file}")
+            # 使用SpecialRulesManager保存规则到config/rules_config.json
+            if hasattr(self, 'special_rules_manager') and self.special_rules_manager:
+                success = self.special_rules_manager.save_rules()
+                if success:
+                    self.show_message("特殊规则已保存到 config/rules_config.json")
+                else:
+                    self.show_message("保存规则失败", "error")
+            else:
+                # 备用方案：直接保存到special_rules.json
+                import json
+                import os
+                
+                config_file = "special_rules.json"
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.special_rules, f, ensure_ascii=False, indent=2)
+                
+                self.show_message(f"特殊规则已保存到 {config_file}")
         except Exception as e:
             self.show_message(f"保存规则失败: {str(e)}", "error")
     
@@ -940,93 +1005,45 @@ class ExcelMergeUI:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             output_file = os.path.join(output_dir, f"合并结果_{timestamp}.xlsx")
             
-            # 收集所有需要合并的数据
-            merged_data = []
-            
             print(f"开始合并，共 {len(self.imported_files)} 个文件")
             print(f"标准字段: {self.standard_fields}")
             
-            for file_path in self.imported_files:
-                try:
-                    print(f"处理文件: {file_path}")
-                    
-                    # 使用智能表头识别读取文件
-                    df = self._read_file_with_header_detection(file_path)
-                    if df is None or df.empty:
-                        print(f"文件 {file_path} 读取失败或为空，跳过")
-                        continue
-                    
-                    print(f"文件列名: {list(df.columns)}")
-                    print(f"数据行数: {len(df)}")
-                    
-                    # 获取该文件的字段映射
-                    file_mappings = self._get_file_mappings(file_path)
-                    print(f"字段映射: {file_mappings}")
-                    
-                    # 先应用字段映射，再应用特殊规则处理
-                    # 1. 先进行字段映射
-                    df = self._apply_field_mapping_to_dataframe(df, file_mappings)
-                    
-                    # 2. 然后应用特殊规则处理
-                    df = self._apply_special_rules(df, file_path)
-                    
-                    # 创建标准化的数据行（字段映射已在前面完成）
-                    for _, row in df.iterrows():
-                        merged_row = {}
-                        
-                        # 直接使用已映射的标准字段
-                        for standard_field in self.standard_fields:
-                            if standard_field in df.columns:
-                                value = row[standard_field]
-                                if pd.isna(value):
-                                    value = ""
-                                # 特殊处理交易时间字段，去除时间部分
-                                if standard_field in ["交易时间", "交易日期"] and value:
-                                    value = self._format_date_value(value)
-                                merged_row[standard_field] = value
-                            else:
-                                merged_row[standard_field] = ""
-                        
-                        # 添加文件来源信息
-                        merged_row['来源文件'] = os.path.basename(file_path)
-                        
-                        merged_data.append(merged_row)
-                    
-                    print(f"文件 {file_path} 处理完成，添加了 {len(df)} 行数据")
-                        
-                except Exception as e:
-                    print(f"处理文件 {file_path} 时出错: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    continue
+            # 使用数据处理器进行合并，确保规则正确应用
+            from data_processing import DataProcessor
+            from header_detection import HeaderDetector
+            from special_rules import SpecialRulesManager
             
-            print(f"合并完成，总共 {len(merged_data)} 条记录")
+            # 创建数据处理器实例
+            header_detector = HeaderDetector()
+            special_rules_manager = SpecialRulesManager()
+            data_processor = DataProcessor(header_detector, special_rules_manager)
             
-            if merged_data:
-                # 创建合并后的DataFrame
-                merged_df = pd.DataFrame(merged_data)
-                print(f"DataFrame形状: {merged_df.shape}")
-                print(f"DataFrame列名: {list(merged_df.columns)}")
+            # 使用数据处理器合并文件
+            merge_result = data_processor.merge_files(self.imported_files, output_file)
+            
+            if merge_result:
+                print(f"合并完成: {merge_result.total_records} 条记录")
+                print(f"处理时间: {merge_result.processing_time:.2f}秒")
                 
-                # 处理空值，使用更强健的方法
-                merged_df = self._clean_nan_values(merged_df)
+                # 验证合并结果
+                is_valid, issues = data_processor.validate_merged_data(merge_result.merged_data)
+                if not is_valid:
+                    print(f"数据验证警告: {issues}")
                 
-                # 使用FileOperations类保存到Excel文件，确保空值处理
-                from file_operations import FileOperations
-                file_ops = FileOperations()
-                success = file_ops.write_excel_file(merged_df, output_file, '合并结果', False)
-                
-                if not success:
-                    raise Exception("保存Excel文件失败")
-                print(f"文件已保存到: {output_file}")
+                # 生成汇总报告
+                summary = data_processor.generate_summary_report(merge_result)
+                print(f"汇总报告: {summary}")
                 
                 # 在主线程中更新UI
-                self.root.after(0, lambda: self.merge_completed(output_file, len(merged_data)))
+                self.root.after(0, lambda: self.merge_completed(output_file, merge_result.total_records))
             else:
-                print("没有有效数据可以合并")
-                self.root.after(0, lambda: self.merge_failed("没有有效数据可以合并"))
+                print("合并失败")
+                self.root.after(0, lambda: self.merge_failed("合并失败"))
                 
         except Exception as e:
+            print(f"合并操作失败: {e}")
+            import traceback
+            traceback.print_exc()
             self.root.after(0, lambda: self.merge_failed(f"合并过程中出错: {e}"))
     
     def merge_completed(self, output_file, record_count):
@@ -1127,17 +1144,36 @@ class ExcelMergeUI:
             # 获取文件名（不包含路径）
             file_name = os.path.basename(file_path)
             
-            # 根据文件名识别银行类型并应用相应规则
-            if "北京银行" in file_name:
-                df = self._apply_beijing_bank_rules(df)
-            elif "工商银行" in file_name or self._is_icbc_data(df):
-                df = self._apply_icbc_rules(df)
-            elif "华夏银行" in file_name:
-                df = self._apply_hua_xia_bank_rules(df)
-            elif "长安银行" in file_name:
-                df = self._apply_chang_an_bank_rules(df)
-            elif "招商银行" in file_name:
-                df = self._apply_cmb_rules(df)
+            # 使用新的SpecialRulesManager应用规则
+            if hasattr(self, 'special_rules_manager') and self.special_rules_manager:
+                # 根据文件名识别银行类型
+                bank_name = None
+                if "北京银行" in file_name:
+                    bank_name = "北京银行"
+                elif "工商银行" in file_name or self._is_icbc_data(df):
+                    bank_name = "工商银行"
+                elif "华夏银行" in file_name:
+                    bank_name = "华夏银行"
+                elif "长安银行" in file_name:
+                    bank_name = "长安银行"
+                elif "招商银行" in file_name:
+                    bank_name = "招商银行"
+                
+                if bank_name:
+                    print(f"应用 {bank_name} 的特殊规则...")
+                    # 获取该银行的规则
+                    bank_rules = self.special_rules_manager.get_rules(bank_name)
+                    if bank_rules:
+                        print(f"找到 {len(bank_rules)} 个 {bank_name} 规则")
+                        # 应用该银行的所有规则
+                        df = self.special_rules_manager.apply_rules(df, bank_name)
+                        print(f"已应用 {bank_name} 规则")
+                    else:
+                        print(f"未找到 {bank_name} 的规则")
+                else:
+                    print("未识别到银行类型，跳过特殊规则处理")
+            else:
+                print("特殊规则管理器未初始化，跳过特殊规则处理")
             
             return df
             
@@ -1745,7 +1781,17 @@ class ExcelMergeUI:
                     saved_mappings = config_data[current_file]
                     print(f"找到完整路径匹配的映射配置: {current_file}")
                 
-                # 2. 尝试文件名匹配
+                # 2. 尝试标准化路径匹配（处理路径分隔符差异）
+                if not saved_mappings:
+                    normalized_current = os.path.normpath(current_file)
+                    for config_key in config_data.keys():
+                        normalized_config = os.path.normpath(config_key)
+                        if normalized_config == normalized_current:
+                            saved_mappings = config_data[config_key]
+                            print(f"找到标准化路径匹配的映射配置: {config_key}")
+                            break
+                
+                # 3. 尝试文件名匹配
                 if not saved_mappings:
                     for config_key in config_data.keys():
                         if os.path.basename(config_key) == file_name:
@@ -1753,13 +1799,12 @@ class ExcelMergeUI:
                             print(f"找到文件名匹配的映射配置: {config_key}")
                             break
                 
-                # 3. 尝试标准化路径匹配
+                # 4. 尝试模糊匹配（包含文件名）
                 if not saved_mappings:
-                    normalized_current = os.path.normpath(current_file)
                     for config_key in config_data.keys():
-                        if os.path.normpath(config_key) == normalized_current:
+                        if file_name in config_key or config_key.endswith(file_name):
                             saved_mappings = config_data[config_key]
-                            print(f"找到标准化路径匹配的映射配置: {config_key}")
+                            print(f"找到模糊匹配的映射配置: {config_key}")
                             break
                 
                 if saved_mappings:
@@ -1782,8 +1827,8 @@ class ExcelMergeUI:
                                 'is_mapped': is_mapped
                             }
                             print(f"加载映射: {standard_field} -> {imported_column} (映射: {is_mapped})")
-                    else:
-                        print(f"文件 {file_name} 没有已保存的映射配置")
+                else:
+                    print(f"文件 {file_name} 没有已保存的映射配置")
             except Exception as e:
                 print(f"加载映射配置时出错: {e}")
                 import traceback
@@ -1848,9 +1893,11 @@ class ExcelMergeUI:
             if values:
                 file_name = values[0]
                 file_path = values[1]
-                # 组合完整路径
+                # 组合完整路径并标准化
                 full_path = os.path.join(file_path, file_name)
-                return full_path
+                # 标准化路径，确保路径分隔符一致
+                normalized_path = os.path.normpath(full_path)
+                return normalized_path
         return None
     
     # 字段映射管理方法
@@ -2205,8 +2252,8 @@ class ExcelMergeUI:
                 import os
                 import sys
                 
-                # 使用完整路径作为配置键，避免同名文件冲突
-                file_key = current_file
+                # 使用标准化路径作为配置键，避免重复配置
+                file_key = os.path.normpath(current_file)
                 
                 # 确定配置目录位置（优先使用exe同目录）
                 if getattr(sys, 'frozen', False):
@@ -2228,6 +2275,9 @@ class ExcelMergeUI:
                     with open(config_file, 'r', encoding='utf-8') as f:
                         config_data = json.load(f)
                 
+                # 清理重复配置：移除相同文件的不同路径形式
+                config_data = self._clean_duplicate_configs(config_data, file_key)
+                
                 # 更新配置
                 config_data[file_key] = mappings
                 
@@ -2243,6 +2293,45 @@ class ExcelMergeUI:
                 
         except Exception as e:
             self.show_message(f"保存字段映射配置失败: {str(e)}", "error")
+    
+    def _clean_duplicate_configs(self, config_data: dict, current_file_key: str) -> dict:
+        """清理重复的字段映射配置"""
+        if not config_data:
+            return config_data
+        
+        # 获取当前文件的文件名（用于匹配）
+        current_file_name = os.path.basename(current_file_key)
+        current_normalized = os.path.normpath(current_file_key)
+        
+        # 需要删除的键
+        keys_to_remove = []
+        
+        for config_key in list(config_data.keys()):
+            # 跳过当前要保存的键
+            if config_key == current_file_key:
+                continue
+                
+            config_normalized = os.path.normpath(config_key)
+            config_file_name = os.path.basename(config_key)
+            
+            # 检查是否为同一个文件的不同路径形式
+            # 优先保留完整路径的配置，删除短路径的配置
+            if config_file_name == current_file_name:
+                # 如果当前键是完整路径，删除短路径的配置
+                if len(current_file_key) > len(config_key):
+                    keys_to_remove.append(config_key)
+                # 如果当前键是短路径，删除完整路径的配置
+                elif len(current_file_key) < len(config_key):
+                    keys_to_remove.append(config_key)
+                # 如果长度相同但路径不同，保留当前键，删除其他
+                elif config_normalized != current_normalized:
+                    keys_to_remove.append(config_key)
+        
+        # 删除重复的配置
+        for key in keys_to_remove:
+            del config_data[key]
+        
+        return config_data
     
     def reset_to_default_rules(self):
         """恢复默认规则"""

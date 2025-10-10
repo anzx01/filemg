@@ -109,28 +109,30 @@ class HeaderDetector:
             # 过滤分页符行
             df_filtered = self._filter_page_breaks(df)
             
-            # 寻找表头行
-            header_row = self._find_header_row(df_filtered)
-            if header_row is None:
+            # 寻找表头行（基于过滤后的DataFrame）
+            header_row_filtered = self._find_header_row(df_filtered)
+            if header_row_filtered is None:
                 return None
             
             # 获取列名
-            columns = df_filtered.iloc[header_row].astype(str).tolist()
+            columns = df_filtered.iloc[header_row_filtered].astype(str).tolist()
             
             # 识别余额列
             balance_columns = self._identify_balance_columns(columns)
             
             # 计算置信度
-            confidence = self._calculate_confidence(df_filtered, header_row, columns, balance_columns)
+            confidence = self._calculate_confidence(df_filtered, header_row_filtered, columns, balance_columns)
             
-            # 确定数据开始行
-            data_start_row = header_row + 1
+            # 将过滤后的行号转换为原始DataFrame的行号
+            # 需要找到过滤后的第header_row_filtered行对应原始DataFrame的哪一行
+            original_header_row = self._map_filtered_row_to_original(df, df_filtered, header_row_filtered)
+            original_data_start_row = original_header_row + 1
             
             return HeaderInfo(
                 file_path=file_path,
                 sheet_name=sheet_name,
-                header_row=header_row,
-                data_start_row=data_start_row,
+                header_row=original_header_row,
+                data_start_row=original_data_start_row,
                 columns=columns,
                 balance_columns=balance_columns,
                 confidence=confidence,
@@ -140,6 +142,35 @@ class HeaderDetector:
         except Exception as e:
             print(f"检测工作表表头失败: {e}")
             return None
+    
+    def _map_filtered_row_to_original(self, original_df: pd.DataFrame, filtered_df: pd.DataFrame, filtered_row: int) -> int:
+        """将过滤后的行号映射回原始DataFrame的行号"""
+        if filtered_row >= len(filtered_df):
+            return len(original_df) - 1
+        
+        # 获取过滤后DataFrame中指定行的数据
+        filtered_row_data = filtered_df.iloc[filtered_row]
+        
+        # 在原始DataFrame中查找匹配的行
+        for i, (_, original_row) in enumerate(original_df.iterrows()):
+            # 比较两行数据是否相同
+            if len(original_row) == len(filtered_row_data):
+                # 检查所有非空值是否匹配
+                match = True
+                for j in range(len(original_row)):
+                    if pd.notna(original_row.iloc[j]) and pd.notna(filtered_row_data.iloc[j]):
+                        if str(original_row.iloc[j]) != str(filtered_row_data.iloc[j]):
+                            match = False
+                            break
+                    elif pd.isna(original_row.iloc[j]) != pd.isna(filtered_row_data.iloc[j]):
+                        match = False
+                        break
+                
+                if match:
+                    return i
+        
+        # 如果找不到匹配的行，返回过滤后的行号（作为fallback）
+        return filtered_row
     
     def _find_header_row(self, df: pd.DataFrame) -> Optional[int]:
         """寻找表头行 - 只返回第一个有效表头"""

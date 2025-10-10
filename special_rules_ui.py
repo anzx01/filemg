@@ -14,6 +14,7 @@ import os
 from typing import Dict, List, Any, Optional
 from special_rules import SpecialRulesManager
 from rule_parser import RuleParser
+from llm_api import RuleLLMParser
 
 
 class SpecialRulesUI:
@@ -28,6 +29,7 @@ class SpecialRulesUI:
         self.parent = parent
         self.rules_manager = SpecialRulesManager()
         self.rule_parser = RuleParser()
+        self.llm_parser = RuleLLMParser()
         
         # 银行列表
         self.bank_list = [
@@ -184,9 +186,23 @@ class SpecialRulesUI:
         desc_frame = ttk.LabelFrame(right_frame, text="规则描述", padding=10)
         desc_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
+        # 自然语言输入区域
         ttk.Label(desc_frame, text="自然语言描述:").pack(anchor=tk.W)
-        self.desc_text = scrolledtext.ScrolledText(desc_frame, height=6, wrap=tk.WORD)
+        self.desc_text = scrolledtext.ScrolledText(desc_frame, height=4, wrap=tk.WORD)
         self.desc_text.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
+        
+        # LLM解析按钮
+        llm_frame = ttk.Frame(desc_frame)
+        llm_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        ttk.Button(llm_frame, text="🤖 LLM智能解析", command=self.parse_with_llm).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(llm_frame, text="📝 手动编辑", command=self.manual_edit_mode).pack(side=tk.LEFT, padx=(0, 5))
+        
+        # 解析状态标签
+        self.parse_status_var = tk.StringVar()
+        self.parse_status_var.set("")
+        self.parse_status_label = ttk.Label(llm_frame, textvariable=self.parse_status_var, foreground="blue")
+        self.parse_status_label.pack(side=tk.RIGHT)
         
         # 预设规则模板
         template_frame = ttk.LabelFrame(right_frame, text="预设规则模板", padding=10)
@@ -219,6 +235,7 @@ class SpecialRulesUI:
         
         ttk.Button(button_frame, text="保存规则", command=self.save_rule).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(button_frame, text="测试规则", command=self.test_rule).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="🤖 测试LLM", command=self.test_llm_connection).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(button_frame, text="导入规则", command=self.import_rules).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(button_frame, text="导出规则", command=self.export_rules).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(button_frame, text="清空表单", command=self.clear_form).pack(side=tk.LEFT, padx=(0, 5))
@@ -387,22 +404,87 @@ class SpecialRulesUI:
             messagebox.showwarning("警告", "请选择银行")
             return
         
-        # 解析规则
+        # 检查是否已经通过LLM解析
+        if self.parse_status_var.get() == "✅ 解析成功":
+            # 使用LLM解析的结果
+            try:
+                result = self.llm_parser.parse_natural_language_rule(description, bank_name)
+                if result.get("success"):
+                    # 添加到规则管理器
+                    self.rules_manager.rules.append(result)
+                    self.rules_manager.save_rules()
+                    
+                    messagebox.showinfo("成功", f"规则保存成功！\n规则ID: {result.get('id')}")
+                    self.load_rules_to_tree()
+                else:
+                    messagebox.showerror("错误", f"LLM解析失败: {result.get('error')}")
+            except Exception as e:
+                messagebox.showerror("错误", f"保存LLM解析规则时发生错误: {str(e)}")
+        else:
+            # 使用传统解析方法
+            try:
+                result = self.rules_manager.add_rule(description, bank_name, rule_type)
+                if result["success"]:
+                    messagebox.showinfo("成功", "规则保存成功")
+                    self.load_rules_to_tree()
+                    
+                    # 更新参数显示
+                    rule = result["rule"]
+                    self.params_text.delete(1.0, tk.END)
+                    self.params_text.insert(1.0, json.dumps(rule.get("parameters", {}), 
+                                                           ensure_ascii=False, indent=2))
+                else:
+                    messagebox.showerror("错误", f"规则保存失败: {result['error']}")
+            except Exception as e:
+                messagebox.showerror("错误", f"保存规则时发生错误: {str(e)}")
+    
+    def parse_with_llm(self):
+        """使用LLM解析规则"""
+        description = self.desc_text.get(1.0, tk.END).strip()
+        if not description:
+            messagebox.showwarning("警告", "请输入规则描述")
+            return
+        
+        bank_name = self.bank_var.get()
+        if not bank_name:
+            messagebox.showwarning("警告", "请先选择银行")
+            return
+        
+        # 显示解析状态
+        self.parse_status_var.set("🔄 正在解析...")
+        self.window.update()
+        
         try:
-            result = self.rules_manager.add_rule(description, bank_name, rule_type)
-            if result["success"]:
-                messagebox.showinfo("成功", "规则保存成功")
-                self.load_rules_to_tree()
+            # 使用LLM解析规则
+            result = self.llm_parser.parse_natural_language_rule(description, bank_name)
+            
+            if result.get("success"):
+                # 解析成功，更新表单
+                rule = result
+                self.type_var.set(rule.get("type", ""))
+                self.status_var.set(rule.get("status", "active"))
                 
-                # 更新参数显示
-                rule = result["rule"]
+                # 显示解析后的参数
                 self.params_text.delete(1.0, tk.END)
                 self.params_text.insert(1.0, json.dumps(rule.get("parameters", {}), 
                                                        ensure_ascii=False, indent=2))
+                
+                # 更新状态
+                self.parse_status_var.set("✅ 解析成功")
+                messagebox.showinfo("成功", f"LLM解析成功！\n规则类型: {rule.get('type')}\n规则ID: {rule.get('id')}")
             else:
-                messagebox.showerror("错误", f"规则保存失败: {result['error']}")
+                # 解析失败
+                self.parse_status_var.set("❌ 解析失败")
+                messagebox.showerror("错误", f"LLM解析失败: {result.get('error', '未知错误')}")
+                
         except Exception as e:
-            messagebox.showerror("错误", f"保存规则时发生错误: {str(e)}")
+            self.parse_status_var.set("❌ 解析失败")
+            messagebox.showerror("错误", f"LLM解析时发生错误: {str(e)}")
+    
+    def manual_edit_mode(self):
+        """切换到手动编辑模式"""
+        self.parse_status_var.set("📝 手动编辑模式")
+        messagebox.showinfo("提示", "已切换到手动编辑模式，您可以手动编辑规则参数")
     
     def test_rule(self):
         """测试规则"""
@@ -471,6 +553,16 @@ class SpecialRulesUI:
             else:
                 messagebox.showerror("错误", "规则导出失败")
     
+    def test_llm_connection(self):
+        """测试LLM连接"""
+        try:
+            if self.llm_parser.api.test_connection():
+                messagebox.showinfo("成功", "🤖 LLM连接测试成功！\nDeepSeek API连接正常")
+            else:
+                messagebox.showerror("错误", "❌ LLM连接测试失败！\n请检查API密钥配置")
+        except Exception as e:
+            messagebox.showerror("错误", f"❌ LLM连接测试失败！\n错误: {str(e)}")
+    
     def clear_form(self):
         """清空表单"""
         self.bank_var.set("")
@@ -478,6 +570,7 @@ class SpecialRulesUI:
         self.status_var.set("active")
         self.desc_text.delete(1.0, tk.END)
         self.params_text.delete(1.0, tk.END)
+        self.parse_status_var.set("")
     
     def run(self):
         """运行界面"""

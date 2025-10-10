@@ -6,7 +6,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\北京银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/北京银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "日期",
@@ -38,7 +38,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\工商银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/工商银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "入帐日期",
@@ -70,7 +70,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\华夏银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/华夏银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "过账日期",
@@ -102,7 +102,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\建设银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/建设银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "记账日期",
@@ -134,7 +134,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\浦发银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/浦发银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "交易日期",
@@ -166,7 +166,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\兴业银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/兴业银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "记账日期",
@@ -198,7 +198,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\邮储银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/邮储银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "交易日期",
@@ -230,7 +230,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\长安银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/长安银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "交易日期",
@@ -262,7 +262,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\招商银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/招商银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "交易日期",
@@ -294,7 +294,7 @@
       "is_mapped": true
     }
   ],
-  "D:/sjdataapp/AI比赛测试数据\\中国银行.xlsx": [
+  "D:/sjdataapp/AI比赛测试数据/中国银行.xlsx": [
     {
       "standard_field": "交易时间",
       "imported_column": "交易日期",
