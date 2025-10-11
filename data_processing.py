@@ -41,10 +41,16 @@ class MergeResult:
 class DataProcessor:
     """数据处理器"""
     
-    def __init__(self, header_detector: HeaderDetector, special_rules_manager: SpecialRulesManager = None):
+    def __init__(self, header_detector: HeaderDetector, special_rules_manager: SpecialRulesManager = None, disable_llm: bool = False):
         """初始化数据处理器"""
         self.header_detector = header_detector
-        self.special_rules_manager = special_rules_manager or SpecialRulesManager()
+        
+        # 如果禁用LLM或者special_rules_manager为None，则创建无LLM的特殊规则管理器
+        if disable_llm or special_rules_manager is None:
+            self.special_rules_manager = SpecialRulesManager(disable_llm=disable_llm)
+        else:
+            self.special_rules_manager = special_rules_manager
+            
         self.rule_parser = RuleParser()
         
         # 数据类型转换规则
@@ -566,11 +572,11 @@ class DataProcessor:
             # 合并数据
             merged_data = self._merge_processed_data(processed_files)
             
-            # 先应用特殊规则（在字段映射之前，保持原始字段名）
-            merged_data = self._apply_special_rules(merged_data, file_paths)
-            
-            # 再应用字段映射配置，统一列名
+            # 先应用字段映射配置，统一列名
             merged_data = self._apply_field_mapping_to_merged_data(merged_data, file_paths)
+            
+            # 再应用特殊规则（在字段映射之后）
+            merged_data = self._apply_special_rules(merged_data, file_paths)
             
             # 最后标准化列名，确保使用标准字段
             merged_data = self._standardize_columns(merged_data)
@@ -772,11 +778,19 @@ class DataProcessor:
     def _apply_special_rules(self, data: pd.DataFrame, file_paths: List[str]) -> pd.DataFrame:
         """应用特殊规则到合并后的数据"""
         try:
+            print(f"开始应用特殊规则，数据形状: {data.shape}")
+            print(f"文件路径: {file_paths}")
+            
             if not self.special_rules_manager:
+                print("特殊规则管理器未初始化")
                 return data
             
             # 获取所有活跃规则
             rules = self.special_rules_manager.get_rules()
+            print(f"所有规则数量: {len(rules)}")
+            for rule in rules:
+                print(f"规则: {rule.get('id')}, 银行: {rule.get('bank_name')}, 状态: {rule.get('status')}")
+            
             active_rules = [rule for rule in rules if rule.get("status") == "active"]
             
             if not active_rules:
@@ -785,18 +799,43 @@ class DataProcessor:
             
             print(f"找到 {len(active_rules)} 个活跃规则")
             
-            # 按银行分组应用规则，每个银行只处理自己的数据
+            # 按银行分组应用规则，每个银行的所有规则一起应用
             result_data = data.copy()
             
+            # 按银行分组规则
+            bank_rules = {}
             for rule in active_rules:
                 bank_name = rule.get("bank_name")
                 if bank_name:
+                    if bank_name not in bank_rules:
+                        bank_rules[bank_name] = []
+                    bank_rules[bank_name].append(rule)
+                else:
+                    # 通用规则
+                    if "通用" not in bank_rules:
+                        bank_rules["通用"] = []
+                    bank_rules["通用"].append(rule)
+            
+            print(f"银行规则分组: {list(bank_rules.keys())}")
+            
+            # 按银行应用规则
+            for bank_name, rules in bank_rules.items():
+                if bank_name == "通用":
+                    # 应用通用规则到所有数据
+                    print(f"应用通用规则: {[rule['id'] for rule in rules]}")
+                    result_data = self.special_rules_manager.apply_rules(
+                        result_data, None, [rule["id"] for rule in rules]
+                    )
+                else:
                     print(f"检查银行规则: {bank_name}")
+                    print(f"文件路径列表: {file_paths}")
                     # 检查是否有该银行的文件
                     bank_files = [fp for fp in file_paths if bank_name in os.path.basename(fp)]
+                    print(f"匹配的文件: {bank_files}")
+                    
                     if bank_files:
                         print(f"找到 {bank_name} 文件: {bank_files}")
-                        print(f"应用规则: {rule['id']} - {rule['type']}")
+                        print(f"应用规则: {[rule['id'] for rule in rules]}")
                         
                         # 只处理该银行的数据行
                         bank_file_names = [os.path.basename(fp) for fp in bank_files]
@@ -804,24 +843,25 @@ class DataProcessor:
                         bank_data = result_data[bank_mask].copy()
                         
                         if not bank_data.empty:
-                            # 应用该银行的规则到银行数据
+                            # 应用该银行的所有规则到银行数据
                             processed_bank_data = self.special_rules_manager.apply_rules(
-                                bank_data, bank_name, [rule["id"]]
+                                bank_data, bank_name, [rule["id"] for rule in rules]
                             )
                             
                             # 将处理后的数据更新回原数据
+                            # 首先确保所有列都存在
+                            for col in processed_bank_data.columns:
+                                if col not in result_data.columns:
+                                    result_data[col] = ""
+                            
+                            # 然后更新数据
                             result_data.loc[bank_mask, processed_bank_data.columns] = processed_bank_data
                             print(f"已应用 {bank_name} 规则，处理了 {len(bank_data)} 条记录")
+                            print(f"规则生成的字段: {[col for col in processed_bank_data.columns if col not in bank_data.columns]}")
                         else:
                             print(f"未找到 {bank_name} 的数据行")
                     else:
                         print(f"未找到 {bank_name} 文件")
-                else:
-                    # 如果没有指定银行，应用通用规则到所有数据
-                    print(f"应用通用规则: {rule.get('id')}")
-                    result_data = self.special_rules_manager.apply_rules(
-                        result_data, None, [rule["id"]]
-                    )
             
             return result_data
             
@@ -1073,12 +1113,35 @@ class DataProcessor:
         """应用招商银行正负号处理规则"""
         try:
             source_field = parameters.get("source_field", "交易金额")
+            source_fields = parameters.get("source_fields", [])
             
-            # 查找交易金额列
-            amount_columns = [col for col in data.columns if "交易" in col and "金额" in col]
+            # 支持多个字段候选
+            field_candidates = source_fields if source_fields else [source_field]
             
-            if amount_columns:
-                amount_col = amount_columns[0]
+            # 查找金额列，优先精确匹配，然后模糊匹配
+            amount_col = None
+            
+            # 1. 精确匹配
+            for candidate in field_candidates:
+                if candidate in data.columns:
+                    amount_col = candidate
+                    break
+            
+            # 2. 模糊匹配（包含关键词）
+            if not amount_col:
+                for candidate in field_candidates:
+                    matching_cols = [col for col in data.columns if candidate in col]
+                    if matching_cols:
+                        amount_col = matching_cols[0]
+                        break
+            
+            # 3. 通用匹配（包含"交易"和"金额"或"交昜"和"金额"）
+            if not amount_col:
+                amount_columns = [col for col in data.columns if ("交易" in col or "交昜" in col) and "金额" in col]
+                if amount_columns:
+                    amount_col = amount_columns[0]
+            
+            if amount_col:
                 
                 print("应用招商银行特殊规则...")
                 
@@ -1302,7 +1365,11 @@ class DataProcessor:
                         standard_field = mapping.get("standard_field")
                         imported_column = mapping.get("imported_column")
                         
-                        if standard_field and imported_column and imported_column in data.columns:
+                        if standard_field and imported_column:
+                            # 检查imported_column是否存在，如果不存在则跳过映射
+                            if imported_column not in data.columns:
+                                print(f"字段映射跳过: {imported_column} 不存在于数据中，跳过映射: {imported_column} -> {standard_field} (文件: {file_name})")
+                                continue
                             # 检查目标字段是否已经存在（可能由规则生成）
                             if standard_field not in mapped_data.columns:
                                 # 创建新列并映射数据
@@ -1332,20 +1399,40 @@ class DataProcessor:
                 if col not in mapped_data.columns:
                     mapped_data[col] = ""
             
-            # 添加规则生成的字段到标准字段列表
-            rule_generated_fields = ['收入', '支出']  # 规则可能生成的字段
+            # 特别处理：如果对方户名字段在原始数据中存在但在mapped_data中不存在，
+            # 说明它是由规则生成的，需要从原始数据中复制过来
+            print(f"检查对方户名字段: 原始数据中有{'对方户名' in data.columns}, mapped_data中有{'对方户名' in mapped_data.columns}")
+            if '对方户名' in data.columns and '对方户名' not in mapped_data.columns:
+                mapped_data['对方户名'] = data['对方户名']
+                print(f"从原始数据中恢复规则生成的对方户名字段")
+                print(f"恢复后的mapped_data字段: {list(mapped_data.columns)}")
+            
+            # 特别处理规则生成的字段，确保它们被保留
+            rule_generated_fields = ['收入', '支出', '对方户名']  # 规则可能生成的字段
             for field in rule_generated_fields:
                 if field in mapped_data.columns and field not in standard_columns:
                     standard_columns.append(field)
             
-            # 只保留标准字段，删除原始列名
-            final_columns = [col for col in standard_columns if col != 'source_file']
-            final_columns.append('source_file')  # 保留源文件列
+            # 只保留标准字段，不包含原始字段
+            all_columns = []
+            
+            # 定义标准字段列表（按照字段映射配置中的标准字段）
+            standard_field_list = ['交易时间', '收入', '支出', '余额', '摘要', '对方行名', '对方户名']
+            
+            # 只添加标准字段
+            for col in standard_field_list:
+                if col in mapped_data.columns:
+                    all_columns.append(col)
+            
+            # 最后添加源文件列
+            all_columns.append('source_file')
             
             # 创建只包含标准字段的最终数据框
-            final_data = mapped_data[final_columns].copy()
+            final_data = mapped_data[all_columns].copy()
             
-            print(f"字段映射完成，标准字段: {[col for col in final_columns if col != 'source_file']}")
+            print(f"字段映射完成，最终字段: {[col for col in all_columns if col != 'source_file']}")
+            print(f"mapped_data中的字段: {list(mapped_data.columns)}")
+            print(f"对方户名字段是否在mapped_data中: {'对方户名' in mapped_data.columns}")
             return final_data
             
         except Exception as e:
@@ -1362,9 +1449,7 @@ class DataProcessor:
                 '支出': ['支出'],
                 '余额': ['余额', '账户余额', '联机余额'],
                 '摘要': ['摘要', '文字摘要', '备注'],
-                '对方户名': ['对方户名', '对手名称', '户名'],
-                '账户号码': ['账户号码', '账号'],
-                '账户名称': ['账户名称', '户名']
+                '对方户名': ['对方户名', '对手名称', '户名']
             }
             
             # 创建标准化后的数据框
@@ -1384,7 +1469,11 @@ class DataProcessor:
             if 'source_file' not in standardized_data.columns:
                 standardized_data['source_file'] = ''
             
-            return standardized_data
+            # 只保留标准字段和source_file列
+            final_columns = ['交易时间', '收入', '支出', '余额', '摘要', '对方行名', '对方户名', 'source_file']
+            available_columns = [col for col in final_columns if col in standardized_data.columns]
+            
+            return standardized_data[available_columns]
             
         except Exception as e:
             print(f"标准化列名失败: {e}")

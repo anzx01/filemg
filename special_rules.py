@@ -27,16 +27,29 @@ class SpecialRulesManager:
     负责管理银行特定的业务规则，包括规则的CRUD操作和规则应用。
     """
     
-    def __init__(self, config_file: str = "config/rules_config.json"):
+    def __init__(self, config_file: str = "config/rules_config.json", disable_llm: bool = False):
         """初始化特殊规则管理器
         
         Args:
             config_file: 规则配置文件路径
+            disable_llm: 是否禁用LLM功能
         """
         self.config_file = config_file
         self.rules = []
         self.rule_parser = RuleParser()
-        self.llm_parser = RuleLLMParser()
+        self.disable_llm = disable_llm
+        
+        # 只有在不禁用LLM时才初始化LLM解析器
+        if not disable_llm:
+            try:
+                self.llm_parser = RuleLLMParser()
+            except Exception as e:
+                print(f"警告: LLM解析器初始化失败，将使用传统解析: {e}")
+                self.llm_parser = None
+                self.disable_llm = True
+        else:
+            self.llm_parser = None
+            
         self.bank_rules = {}
         
         # 加载现有规则
@@ -115,6 +128,11 @@ class SpecialRulesManager:
         """
         try:
             logger.info(f"使用LLM添加新规则: {rule_description}")
+            
+            # 检查LLM解析器是否可用
+            if not self.llm_parser or self.disable_llm:
+                logger.warning("LLM解析器不可用，回退到传统解析")
+                return self.add_rule(rule_description, bank_name)
             
             # 使用LLM解析规则
             result = self.llm_parser.parse_natural_language_rule(rule_description, bank_name)

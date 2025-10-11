@@ -100,9 +100,10 @@
       "bank_name": "招商银行",
       "file_pattern": "招商银行",
       "type": "sign_processing",
-      "description": "招商银行.xlsx：根据交易金额字段的正负号，将其对应记录数据存入收入或支出（正数为收入，负数为支出）",
+      "description": "招商银行.xlsx：根据交易金额或交昜金额字段的正负号，将其对应记录数据存入收入或支出（正数为收入，负数为支出）",
       "parameters": {
-        "source_field": "交易金额",
+        "source_field": "交昜金额",
+        "source_fields": ["交昜金额", "交易金额"],
         "target_field": "收入或支出",
         "positive_mapping": "正数为收入",
         "negative_mapping": "负数为支出"
@@ -111,6 +112,7 @@
         "银行:招商银行",
         "字段:金额",
         "规则:交易金额",
+        "规则:交昜金额",
         "规则:正负号",
         "规则:正数为收入",
         "规则:负数为支出"

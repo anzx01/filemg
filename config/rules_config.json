@@ -164,19 +164,42 @@
     "status": "active"
   },
   {
-    "id": "rule_10",
-    "description": "邮储银行  -将导入文件中对方行名的记录记入导出文件的对方户名记录",
+    "id": "rule_8",
+    "description": "招商银行 - 根据交易金额字段的正负号，将其对应记录数据存入收入或支出（正数为收入，负数为支出）",
+    "type": "sign_processing",
+    "bank_name": "招商银行",
+    "keywords": [
+      "银行:招商银行",
+      "字段:金额",
+      "银行:招商银行",
+      "规则:交易金额",
+      "规则:正负号",
+      "规则:正数为收入",
+      "规则:负数为支出"
+    ],
+    "parameters": {
+      "source_field": "交易金额",
+      "target_field": "收入或支出",
+      "positive_mapping": "正数为收入",
+      "negative_mapping": "负数为支出"
+    },
+    "created_time": "2025-10-12T06:43:30.248867",
+    "status": "active"
+  },
+  {
+    "id": "postal_bank_name_mapping",
+    "description": "邮储银行 -  将导入文件的对方行名映射到导出文件的对方户名",
     "type": "custom",
     "bank_name": "邮储银行",
     "keywords": [
       "银行:邮储银行"
     ],
     "parameters": {
-      "description": "邮储银行  -将导入文件中对方行名的记录记入导出文件的对方户名记录",
+      "description": "邮储银行 -  将导入文件的对方行名映射到导出文件的对方户名",
       "rule_type": "custom",
       "parameters": {}
     },
-    "created_time": "2025-10-11T07:06:33.330607",
+    "created_time": "2025-10-12T06:51:31.921136",
     "status": "active"
   }
 ]

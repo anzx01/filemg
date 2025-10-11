@@ -447,16 +447,16 @@ class ExcelMergeUI:
         ttk.Label(list_frame, text="特殊文件合并规则:").grid(row=0, column=0, sticky=tk.W)
         
         # 创建Treeview来显示规则
-        columns = ('银行名称', '规则描述')
+        columns = ('文件名', '规则描述')
         self.rules_tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=6)
         
         # 设置列标题
-        self.rules_tree.heading('银行名称', text='银行名称')
+        self.rules_tree.heading('文件名', text='文件名')
         self.rules_tree.heading('规则描述', text='规则描述')
         
         # 设置列宽
-        self.rules_tree.column('银行名称', width=100)
-        self.rules_tree.column('规则描述', width=450)
+        self.rules_tree.column('文件名', width=200)
+        self.rules_tree.column('规则描述', width=350)
         
         self.rules_tree.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(3, 0))
         
@@ -727,28 +727,8 @@ class ExcelMergeUI:
         
         self.special_rules[file_name].append(new_rule_text)
         
-        # 同时添加到SpecialRulesManager中
-        if hasattr(self, 'special_rules_manager') and self.special_rules_manager:
-            try:
-                # 从文件名推断银行名称
-                bank_name = None
-                if "北京银行" in file_name:
-                    bank_name = "北京银行"
-                elif "工商银行" in file_name:
-                    bank_name = "工商银行"
-                elif "华夏银行" in file_name:
-                    bank_name = "华夏银行"
-                elif "招商银行" in file_name:
-                    bank_name = "招商银行"
-                elif "长安银行" in file_name:
-                    bank_name = "长安银行"
-                
-                if bank_name:
-                    # 添加规则到SpecialRulesManager
-                    self.special_rules_manager.add_rule(new_rule_text, bank_name)
-                    print(f"已添加规则到SpecialRulesManager: {bank_name}")
-            except Exception as e:
-                print(f"添加规则到SpecialRulesManager失败: {e}")
+        # 注意：只有在用户实际编辑规则描述后才会添加到SpecialRulesManager
+        # 这里只添加到UI显示和self.special_rules中
         
         # 添加到Treeview显示
         item_id = self.rules_tree.insert('', 'end', values=(file_name, new_rule_text))
@@ -800,6 +780,41 @@ class ExcelMergeUI:
                     if rule == current_value:
                         self.special_rules[file_name][i] = new_value
                         break
+            
+            # 如果编辑的是规则描述列（column=1），且不是默认的占位符文本
+            if column == 1 and new_value != "点击编辑规则描述...":
+                # 添加到SpecialRulesManager中
+                if hasattr(self, 'special_rules_manager') and self.special_rules_manager:
+                    try:
+                        # 从文件名推断银行名称
+                        bank_name = self._extract_bank_name_from_filename(file_name)
+                        
+                        if bank_name:
+                            # 添加规则到SpecialRulesManager
+                            result = self.special_rules_manager.add_rule(new_value, bank_name)
+                            if result.get("success"):
+                                self.show_message(f"规则已成功保存到系统: {bank_name}")
+                                print(f"已添加规则到SpecialRulesManager: {bank_name}")
+                            else:
+                                error_msg = result.get('error', '未知错误')
+                                self.show_message(f"规则保存失败: {error_msg}", "error")
+                                print(f"添加规则到SpecialRulesManager失败: {error_msg}")
+                        else:
+                            # 如果无法自动识别银行名称，让用户手动选择
+                            bank_name = self._ask_user_to_select_bank()
+                            if bank_name:
+                                result = self.special_rules_manager.add_rule(new_value, bank_name)
+                                if result.get("success"):
+                                    self.show_message(f"规则已成功保存到系统: {bank_name}")
+                                else:
+                                    error_msg = result.get('error', '未知错误')
+                                    self.show_message(f"规则保存失败: {error_msg}", "error")
+                            else:
+                                self.show_message("未选择银行类型，规则未保存", "warning")
+                    except Exception as e:
+                        error_msg = str(e)
+                        self.show_message(f"规则保存失败: {error_msg}", "error")
+                        print(f"添加规则到SpecialRulesManager失败: {e}")
             
             edit_frame.destroy()
         
@@ -859,17 +874,7 @@ class ExcelMergeUI:
         if hasattr(self, 'special_rules_manager') and self.special_rules_manager:
             try:
                 # 从文件名推断银行名称
-                bank_name = None
-                if "北京银行" in file_name:
-                    bank_name = "北京银行"
-                elif "工商银行" in file_name:
-                    bank_name = "工商银行"
-                elif "华夏银行" in file_name:
-                    bank_name = "华夏银行"
-                elif "招商银行" in file_name:
-                    bank_name = "招商银行"
-                elif "长安银行" in file_name:
-                    bank_name = "长安银行"
+                bank_name = self._extract_bank_name_from_filename(file_name)
                 
                 if bank_name:
                     # 查找并删除匹配的规则
@@ -882,7 +887,16 @@ class ExcelMergeUI:
                     for rule in rules_to_remove:
                         self.special_rules_manager.rules.remove(rule)
                         print(f"已从SpecialRulesManager删除规则: {rule.get('id', 'unknown')}")
+                    
+                    if rules_to_remove:
+                        # 保存更新后的规则
+                        self.special_rules_manager.save_rules()
+                        self.show_message(f"已从系统中删除 {len(rules_to_remove)} 个规则")
+                    else:
+                        self.show_message("未找到匹配的规则", "warning")
             except Exception as e:
+                error_msg = str(e)
+                self.show_message(f"删除规则失败: {error_msg}", "error")
                 print(f"从SpecialRulesManager删除规则失败: {e}")
         
         # 从Treeview中删除
@@ -917,6 +931,15 @@ class ExcelMergeUI:
         # 由于移除了规则描述文本框，只需要清空文件名显示
         self.rule_file_label.config(text="未选择文件", foreground="gray")
     
+    def _find_matching_file(self, bank_name):
+        """根据银行名称查找匹配的文件路径"""
+        import os
+        for file_path in self.imported_files:
+            file_name = os.path.basename(file_path)
+            if bank_name in file_name:
+                return file_path
+        return None
+    
     def load_special_rules(self):
         """加载特殊文件合并规则"""
         try:
@@ -933,7 +956,15 @@ class ExcelMergeUI:
                 for rule in rules_config:
                     bank_name = rule.get('bank_name', '未知银行')
                     description = rule.get('description', '无描述')
-                    self.rules_tree.insert('', 'end', values=(bank_name, description))
+                    
+                    # 查找匹配的文件路径
+                    file_path = self._find_matching_file(bank_name)
+                    if file_path:
+                        # 显示文件名（包含路径）
+                        self.rules_tree.insert('', 'end', values=(file_path, description))
+                    else:
+                        # 如果没有找到匹配的文件，显示银行名称
+                        self.rules_tree.insert('', 'end', values=(bank_name, description))
                 
                 if rules_config:
                     self.show_message(f"已加载 {len(rules_config)} 个特殊文件合并规则")
@@ -948,7 +979,13 @@ class ExcelMergeUI:
                 # 将规则显示到Treeview中
                 for file_name, rules in self.special_rules.items():
                     for rule in rules:
-                        self.rules_tree.insert('', 'end', values=(file_name, rule))
+                        # 查找匹配的文件路径
+                        file_path = self._find_matching_file(file_name)
+                        if file_path:
+                            self.rules_tree.insert('', 'end', values=(file_path, rule))
+                        else:
+                            # 如果没有找到匹配的文件，显示文件名
+                            self.rules_tree.insert('', 'end', values=(file_name, rule))
                 
                 if self.special_rules:
                     self.show_message(f"已加载 {len(self.special_rules)} 个文件的特殊规则")
@@ -1158,6 +1195,8 @@ class ExcelMergeUI:
                     bank_name = "长安银行"
                 elif "招商银行" in file_name:
                     bank_name = "招商银行"
+                elif "邮储银行" in file_name:
+                    bank_name = "邮储银行"
                 
                 if bank_name:
                     print(f"应用 {bank_name} 的特殊规则...")
@@ -2104,6 +2143,53 @@ class ExcelMergeUI:
                 return keyword
         
         return name
+    
+    def _extract_bank_name_from_filename(self, file_name):
+        """从文件名提取银行名称（用于规则管理）"""
+        # 移除文件扩展名
+        name = os.path.splitext(file_name)[0]
+        
+        # 常见的银行名称关键词
+        bank_keywords = [
+            '北京银行', '工商银行', '华夏银行', '招商银行', '长安银行',
+            '建设银行', '农业银行', '中国银行', '浦发银行', '兴业银行',
+            '邮储银行', '光大银行', '民生银行', '中信银行', '交通银行'
+        ]
+        
+        for keyword in bank_keywords:
+            if keyword in name:
+                return keyword
+        
+        # 如果无法识别，返回None
+        return None
+    
+    def _ask_user_to_select_bank(self):
+        """让用户手动选择银行名称"""
+        try:
+            from tkinter import simpledialog
+            
+            # 银行选项
+            bank_options = [
+                "北京银行", "工商银行", "华夏银行", "招商银行", "长安银行",
+                "建设银行", "农业银行", "中国银行", "浦发银行", "兴业银行",
+                "邮储银行", "光大银行", "民生银行", "中信银行", "交通银行"
+            ]
+            
+            # 创建选择对话框
+            bank_name = simpledialog.askstring(
+                "选择银行",
+                "无法自动识别银行类型，请手动选择：",
+                initialvalue="工商银行"
+            )
+            
+            if bank_name and bank_name in bank_options:
+                return bank_name
+            else:
+                return None
+                
+        except Exception as e:
+            print(f"用户选择银行失败: {e}")
+            return None
     
     def _read_file_traditional(self, file_path):
         """传统方法读取文件"""

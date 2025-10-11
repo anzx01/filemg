@@ -198,38 +198,6 @@
       "is_mapped": true
     }
   ],
-  "D:\\sjdataapp\\AI比赛测试数据\\邮储银行.xlsx": [
-    {
-      "standard_field": "交易时间",
-      "imported_column": "交易日期",
-      "is_mapped": true
-    },
-    {
-      "standard_field": "收入",
-      "imported_column": "贷方金额",
-      "is_mapped": true
-    },
-    {
-      "standard_field": "支出",
-      "imported_column": "借方金额",
-      "is_mapped": true
-    },
-    {
-      "standard_field": "余额",
-      "imported_column": "余额",
-      "is_mapped": true
-    },
-    {
-      "standard_field": "摘要",
-      "imported_column": "余额",
-      "is_mapped": true
-    },
-    {
-      "standard_field": "对方户名",
-      "imported_column": "对方户名",
-      "is_mapped": true
-    }
-  ],
   "D:\\sjdataapp\\AI比赛测试数据\\长安银行.xlsx": [
     {
       "standard_field": "交易时间",
@@ -318,6 +286,43 @@
     {
       "standard_field": "摘要",
       "imported_column": "交易摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名",
+      "is_mapped": true
+    }
+  ],
+  "G:\\prj2025\\AI比赛测试数据\\邮储银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "交易日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "贷方金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "借方金额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方行名",
+      "imported_column": "对方行名",
       "is_mapped": true
     },
     {

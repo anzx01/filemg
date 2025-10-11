@@ -14,6 +14,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 import logging
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -26,12 +29,38 @@ class RuleParser:
     负责解析自然语言规则，支持多种银行特定的业务规则处理。
     """
     
-    def __init__(self):
+    def __init__(self, openai_api_key: str = None):
         """初始化规则解析器"""
+        # 加载环境变量 - 支持多个.env文件位置
+        load_dotenv()  # 当前目录
+        load_dotenv('.env')  # 当前目录的.env文件
+        load_dotenv('config.env')  # config.env文件
+        
         self.rules = []
         self.bank_specific_rules = self._initialize_bank_rules()
         self.keyword_patterns = self._initialize_keyword_patterns()
         self.bank_rules_config = self._load_bank_rules_config()
+        
+        # 加载LLM配置
+        self.llm_config = self._load_llm_config()
+        
+        # 初始化OpenAI客户端 - 支持从.env文件读取API密钥
+        api_key = (openai_api_key or 
+                  self.llm_config.get("openai", {}).get("api_key") or
+                  os.getenv("DEEPSEEK_API_KEY") or
+                  os.getenv("OPENAI_API_KEY"))
+        
+        if api_key and self.llm_config.get("enable_llm_parsing", True):
+            self.openai_client = OpenAI(
+                api_key=api_key,
+                base_url=self.llm_config.get("openai", {}).get("base_url", "https://api.openai.com/v1")
+            )
+            self.use_llm = True
+            logger.info("LLM解析功能已启用")
+        else:
+            self.openai_client = None
+            self.use_llm = False
+            logger.warning("未提供API密钥或LLM功能被禁用，将使用传统规则解析方法")
         
     def _initialize_bank_rules(self) -> Dict[str, Dict]:
         """初始化银行特定规则模板"""
@@ -459,6 +488,9 @@ class RuleParser:
             elif rule_type == "field_mapping":
                 logger.info(f"应用字段映射规则: {rule['id']}")
                 return self._apply_field_mapping_rule(data, parameters)
+            elif rule_type == "custom":
+                logger.info(f"应用自定义规则: {rule['id']}")
+                return self._apply_custom_rule(data, rule)
             else:
                 logger.warning(f"未知规则类型: {rule_type}, 规则ID: {rule['id']}")
                 return data
@@ -1151,6 +1183,296 @@ class RuleParser:
         except Exception as e:
             logger.error(f"应用工商银行规则失败: {str(e)}")
             return data
+    
+    def parse_natural_language_with_llm(self, natural_language_rule: str, bank_name: str = None) -> Dict[str, Any]:
+        """
+        使用LLM解析自然语言规则
+        
+        Args:
+            natural_language_rule: 自然语言规则描述
+            bank_name: 银行名称（可选）
+            
+        Returns:
+            Dict: 解析后的规则配置
+        """
+        if not self.use_llm:
+            logger.warning("LLM功能未启用，回退到传统解析方法")
+            return self.parse_natural_language_rule(natural_language_rule)
+        
+        try:
+            # 构建LLM提示词
+            prompt = self._build_llm_prompt(natural_language_rule, bank_name)
+            
+            # 调用LLM API (支持OpenAI和DeepSeek)
+            model = self.llm_config.get("openai", {}).get("model", "gpt-3.5-turbo")
+            
+            response = self.openai_client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "你是一个专业的银行数据处理规则解析专家。请将用户输入的自然语言规则转换为结构化的JSON配置。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=1000
+            )
+            
+            # 解析LLM响应
+            llm_response = response.choices[0].message.content.strip()
+            parsed_rule = self._parse_llm_response(llm_response, natural_language_rule, bank_name)
+            
+            logger.info(f"LLM成功解析规则: {natural_language_rule}")
+            return parsed_rule
+            
+        except Exception as e:
+            logger.error(f"LLM解析失败: {e}")
+            logger.info("回退到传统解析方法")
+            return self.parse_natural_language_rule(natural_language_rule)
+    
+    def _build_llm_prompt(self, natural_language_rule: str, bank_name: str = None) -> str:
+        """构建LLM提示词"""
+        prompt = f"""
+请将以下自然语言规则转换为结构化的JSON配置：
+
+规则描述: {natural_language_rule}
+银行名称: {bank_name or '未指定'}
+
+请根据规则内容，生成以下格式的JSON配置：
+{{
+    "rule_type": "规则类型",
+    "description": "规则描述",
+    "bank_name": "银行名称",
+    "keywords": ["关键词1", "关键词2"],
+    "parameters": {{
+        "field_mappings": {{"源字段": "目标字段"}},
+        "date_format": "日期格式",
+        "amount_format": "金额格式",
+        "custom_logic": "自定义逻辑描述"
+    }}
+}}
+
+支持的规则类型包括：
+- field_mapping: 字段映射规则
+- date_processing: 日期处理规则
+- amount_processing: 金额处理规则
+- balance_calculation: 余额计算规则
+- income_expense_classification: 收支分类规则
+- custom: 自定义规则
+
+请确保：
+1. 规则类型准确匹配规则内容
+2. 字段映射使用正确的字段名
+3. 参数配置完整且准确
+4. 关键词能够帮助识别规则
+
+只返回JSON格式的配置，不要包含其他文字。
+"""
+        return prompt
+    
+    def _parse_llm_response(self, llm_response: str, original_rule: str, bank_name: str = None) -> Dict[str, Any]:
+        """解析LLM响应并生成规则配置"""
+        try:
+            # 清理响应内容，移除markdown代码块标记
+            cleaned_response = llm_response.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]  # 移除 ```json
+            if cleaned_response.startswith("```"):
+                cleaned_response = cleaned_response[3:]   # 移除 ```
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]  # 移除结尾的 ```
+            cleaned_response = cleaned_response.strip()
+            
+            # 尝试解析JSON
+            rule_config = json.loads(cleaned_response)
+            
+            # 生成规则ID
+            rule_id = f"rule_{len(self.rules) + 1}_{int(datetime.now().timestamp())}"
+            
+            # 构建完整的规则配置
+            parsed_rule = {
+                "id": rule_id,
+                "description": original_rule,
+                "type": rule_config.get("rule_type", "custom"),
+                "bank_name": bank_name or rule_config.get("bank_name", "未知银行"),
+                "keywords": rule_config.get("keywords", []),
+                "parameters": {
+                    "description": original_rule,
+                    "rule_type": rule_config.get("rule_type", "custom"),
+                    "parameters": rule_config.get("parameters", {})
+                },
+                "created_time": datetime.now().isoformat(),
+                "status": "active"
+            }
+            
+            return parsed_rule
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"LLM响应JSON解析失败: {e}")
+            logger.error(f"LLM响应内容: {llm_response}")
+            
+            # 回退到传统解析
+            return self.parse_natural_language_rule(original_rule)
+        
+        except Exception as e:
+            logger.error(f"解析LLM响应时发生错误: {e}")
+            return self.parse_natural_language_rule(original_rule)
+    
+    def add_rule_from_natural_language(self, natural_language_rule: str, bank_name: str = None) -> Dict[str, Any]:
+        """
+        从自然语言添加规则
+        
+        Args:
+            natural_language_rule: 自然语言规则描述
+            bank_name: 银行名称
+            
+        Returns:
+            Dict: 添加的规则配置
+        """
+        # 使用LLM解析规则
+        parsed_rule = self.parse_natural_language_with_llm(natural_language_rule, bank_name)
+        
+        # 添加到规则列表
+        self.rules.append(parsed_rule)
+        
+        logger.info(f"成功添加规则: {parsed_rule['id']}")
+        return parsed_rule
+    
+    def batch_parse_natural_language_rules(self, rules: List[str], bank_name: str = None) -> List[Dict[str, Any]]:
+        """
+        批量解析自然语言规则
+        
+        Args:
+            rules: 自然语言规则列表
+            bank_name: 银行名称
+            
+        Returns:
+            List[Dict]: 解析后的规则配置列表
+        """
+        parsed_rules = []
+        
+        for rule_text in rules:
+            try:
+                parsed_rule = self.parse_natural_language_with_llm(rule_text, bank_name)
+                parsed_rules.append(parsed_rule)
+                self.rules.append(parsed_rule)
+            except Exception as e:
+                logger.error(f"解析规则失败: {rule_text}, 错误: {e}")
+                continue
+        
+        logger.info(f"批量解析完成，成功解析 {len(parsed_rules)} 条规则")
+        return parsed_rules
+    
+    def _load_llm_config(self) -> Dict[str, Any]:
+        """加载LLM配置"""
+        # 默认配置
+        default_config = {
+            "enable_llm_parsing": True,
+            "openai": {
+                "api_key": None,
+                "base_url": "https://api.deepseek.com/v1",  # DeepSeek API地址
+                "model": "deepseek-chat"
+            }
+        }
+        
+        try:
+            config_path = "config/llm_config.json"
+            with open(config_path, 'r', encoding='utf-8') as f:
+                file_config = json.load(f)
+                # 合并文件配置和默认配置
+                default_config.update(file_config)
+        except FileNotFoundError:
+            logger.warning(f"LLM配置文件不存在: {config_path}，使用默认配置")
+        except Exception as e:
+            logger.error(f"加载LLM配置失败: {e}，使用默认配置")
+        
+        # 从环境变量覆盖配置
+        if os.getenv("DEEPSEEK_API_KEY"):
+            default_config["openai"]["api_key"] = os.getenv("DEEPSEEK_API_KEY")
+            default_config["openai"]["base_url"] = os.getenv("DEEPSEEK_API_BASE_URL", "https://api.deepseek.com/v1")
+            default_config["openai"]["model"] = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+        if os.getenv("OPENAI_API_KEY"):
+            default_config["openai"]["api_key"] = os.getenv("OPENAI_API_KEY")
+        if os.getenv("OPENAI_BASE_URL"):
+            default_config["openai"]["base_url"] = os.getenv("OPENAI_BASE_URL")
+        if os.getenv("OPENAI_MODEL"):
+            default_config["openai"]["model"] = os.getenv("OPENAI_MODEL")
+        
+        return default_config
+    
+    def _apply_custom_rule(self, data: pd.DataFrame, rule: Dict[str, Any]) -> pd.DataFrame:
+        """应用自定义规则
+        
+        Args:
+            data: 输入数据
+            rule: 规则对象
+            
+        Returns:
+            pd.DataFrame: 处理后的数据
+        """
+        try:
+            logger.info(f"开始应用自定义规则: {rule['id']}")
+            
+            # 获取规则描述和银行名称
+            description = rule.get("description", "")
+            bank_name = rule.get("bank_name", "")
+            
+            # 处理邮储银行规则：将对方行名映射到对方户名
+            if "邮储银行" in bank_name and "对方行名" in description and "对方户名" in description:
+                logger.info("应用邮储银行规则：将对方行名映射到对方户名")
+                
+                # 检查是否存在对方行名字段
+                if "对方行名" in data.columns:
+                    # 如果对方户名字段存在但为空，或者不存在，则用对方行名填充
+                    if "对方户名" in data.columns:
+                        # 对方户名字段存在，用对方行名填充空值
+                        mask = (data["对方户名"].isna()) | (data["对方户名"] == "") | (data["对方户名"].astype(str).str.strip() == "")
+                        data.loc[mask, "对方户名"] = data.loc[mask, "对方行名"]
+                        logger.info(f"已更新 {mask.sum()} 条记录的对方户名字段")
+                    else:
+                        # 对方户名字段不存在，创建新字段
+                        data["对方户名"] = data["对方行名"]
+                        logger.info("已创建对方户名字段并填充对方行名数据")
+                else:
+                    logger.warning("未找到对方行名字段，无法应用邮储银行规则")
+            
+            # 处理其他自定义规则
+            else:
+                logger.info(f"自定义规则描述: {description}")
+                logger.warning(f"未实现的自定义规则: {rule['id']}")
+            
+            return data
+            
+        except Exception as e:
+            logger.error(f"应用自定义规则失败: {str(e)}")
+            return data
+    
+
+    def update_llm_config(self, config_updates: Dict[str, Any]) -> bool:
+        """更新LLM配置"""
+        try:
+            self.llm_config.update(config_updates)
+            
+            # 保存到文件
+            config_path = "config/llm_config.json"
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.llm_config, f, ensure_ascii=False, indent=2)
+            
+            # 重新初始化OpenAI客户端
+            api_key = self.llm_config.get("openai", {}).get("api_key")
+            if api_key and self.llm_config.get("enable_llm_parsing", True):
+                self.openai_client = OpenAI(
+                    api_key=api_key,
+                    base_url=self.llm_config.get("openai", {}).get("base_url", "https://api.openai.com/v1")
+                )
+                self.use_llm = True
+                logger.info("LLM配置已更新并重新启用")
+            else:
+                self.use_llm = False
+                logger.info("LLM功能已禁用")
+            
+            return True
+        except Exception as e:
+            logger.error(f"更新LLM配置失败: {e}")
+            return False
 
 
 # 测试代码

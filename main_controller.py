@@ -22,14 +22,28 @@ from resource_manager import ResourceManager
 class ExcelMergeController:
     """Excel合并工具主控制器"""
     
-    def __init__(self):
+    def __init__(self, disable_llm: bool = False):
         """初始化控制器"""
         self.resource_manager = ResourceManager()
         self.file_manager = FileManager()
         self.file_operations = FileOperations()
         self.header_detector = HeaderDetector()
-        self.special_rules_manager = SpecialRulesManager()
-        self.data_processor = DataProcessor(self.header_detector, self.special_rules_manager)
+        
+        # 根据参数决定是否禁用LLM
+        self.disable_llm = disable_llm
+        if disable_llm:
+            self.special_rules_manager = SpecialRulesManager(disable_llm=True)
+            self.data_processor = DataProcessor(self.header_detector, self.special_rules_manager, disable_llm=True)
+        else:
+            try:
+                self.special_rules_manager = SpecialRulesManager()
+                self.data_processor = DataProcessor(self.header_detector, self.special_rules_manager)
+            except Exception as e:
+                print(f"警告: LLM初始化失败，回退到无LLM模式: {e}")
+                self.disable_llm = True
+                self.special_rules_manager = SpecialRulesManager(disable_llm=True)
+                self.data_processor = DataProcessor(self.header_detector, self.special_rules_manager, disable_llm=True)
+        
         self.ui = None
         self.config_dir = "config"
         self.output_dir = self.resource_manager.get_output_directory()
@@ -606,8 +620,21 @@ class ExcelMergeController:
 def main():
     """主函数"""
     try:
+        # 检查是否有API密钥，决定是否禁用LLM
+        disable_llm = False
+        try:
+            from dotenv import load_dotenv
+            load_dotenv()
+            api_key = os.getenv('DEEPSEEK_API_KEY')
+            if not api_key:
+                print("未找到DeepSeek API密钥，将使用无LLM模式")
+                disable_llm = True
+        except:
+            print("无法加载环境变量，将使用无LLM模式")
+            disable_llm = True
+        
         # 创建控制器
-        controller = ExcelMergeController()
+        controller = ExcelMergeController(disable_llm=disable_llm)
         
         # 启动应用程序
         controller.start_application()
