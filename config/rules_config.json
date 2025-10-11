@@ -138,20 +138,22 @@
   },
   {
     "id": "cmb_sign_processing",
-    "description": "招商银行 - 根据交易金额或交昜金额字段的正负号，将其对应记录数据存入收入或支出（正数为收入，负数为支出）",
+    "description": "招商银行 - 根据交易金额字段的正负号，将其对应记录数据存入收入或支出（正数为收入，负数为支出）",
     "type": "sign_processing",
     "bank_name": "招商银行",
     "keywords": [
       "银行:招商银行",
       "处理:正负号",
       "字段:交易金额",
-      "字段:交昜金额",
       "规则:正负号处理"
     ],
     "parameters": {
       "processing_type": "sign",
       "description": "根据正负号处理",
-      "source_fields": ["交易金额", "交昜金额"],
+      "source_fields": [
+        "交易金额",
+        "交昜金额"
+      ],
       "target_field": "收入或支出",
       "mapping": {
         "positive": "收入",
@@ -159,6 +161,22 @@
       }
     },
     "created_time": "2025-01-27T00:00:00.000000",
+    "status": "active"
+  },
+  {
+    "id": "rule_10",
+    "description": "邮储银行  -将导入文件中对方行名的记录记入导出文件的对方户名记录",
+    "type": "custom",
+    "bank_name": "邮储银行",
+    "keywords": [
+      "银行:邮储银行"
+    ],
+    "parameters": {
+      "description": "邮储银行  -将导入文件中对方行名的记录记入导出文件的对方户名记录",
+      "rule_type": "custom",
+      "parameters": {}
+    },
+    "created_time": "2025-10-11T07:06:33.330607",
     "status": "active"
   }
 ]
