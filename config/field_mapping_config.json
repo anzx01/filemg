@@ -39,12 +39,12 @@
     },
     {
       "standard_field": "收入",
-      "imported_column": "借方金额",
+      "imported_column": "贷方金额",
       "is_mapped": true
     },
     {
       "standard_field": "支出",
-      "imported_column": "贷方金额",
+      "imported_column": "借方金额",
       "is_mapped": true
     },
     {
@@ -60,6 +60,38 @@
     {
       "standard_field": "对方户名",
       "imported_column": "交易对手（账号或户名）／现金附言",
+      "is_mapped": true
+    }
+  ],
+  "G:\\prj2025\\AI比赛测试数据\\工商银行.xlsx": [
+    {
+      "standard_field": "交易时间",
+      "imported_column": "入帐日期",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "收入",
+      "imported_column": "发生额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "支出",
+      "imported_column": "发生额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "余额",
+      "imported_column": "余额",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "摘要",
+      "imported_column": "摘要",
+      "is_mapped": true
+    },
+    {
+      "standard_field": "对方户名",
+      "imported_column": "对方户名",
       "is_mapped": true
     }
   ]

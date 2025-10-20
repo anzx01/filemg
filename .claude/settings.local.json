@@ -15,7 +15,8 @@
       "Bash(rm:*)",
       "Bash(git rm:*)",
       "Bash(findstr:*)",
-      "Bash(where npm)"
+      "Bash(where npm)",
+      "Bash(dir G:prj2025sj03config)"
     ],
     "deny": [],
     "ask": []
