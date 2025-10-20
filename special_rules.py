@@ -13,7 +13,7 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 import logging
-from rule_parser import RuleParser
+from dynamic_rule_parser import DynamicRuleParser
 from llm_api import RuleLLMParser
 
 # 配置日志
@@ -36,7 +36,7 @@ class SpecialRulesManager:
         """
         self.config_file = config_file
         self.rules = []
-        self.rule_parser = RuleParser()
+        self.rule_parser = DynamicRuleParser(config_file)
         self.disable_llm = disable_llm
         
         # 只有在不禁用LLM时才初始化LLM解析器
@@ -55,6 +55,150 @@ class SpecialRulesManager:
         # 加载现有规则
         self.load_rules()
     
+    def _is_duplicate_rule(self, new_rule: Dict[str, Any]) -> bool:
+        """检查是否存在重复规则
+        
+        Args:
+            new_rule: 新规则对象
+            
+        Returns:
+            bool: 是否存在重复规则
+        """
+        return self._find_duplicate_rule(new_rule) is not None
+    
+    def _clean_rule_description(self, description: str, bank_name: str) -> str:
+        """清理规则描述，用于比较
+        
+        Args:
+            description: 原始描述
+            bank_name: 银行名称
+            
+        Returns:
+            str: 清理后的描述
+        """
+        if not description:
+            return ""
+            
+        # 去除银行名称前缀
+        desc = description.strip()
+        if desc.startswith(f"{bank_name} - "):
+            desc = desc[len(f"{bank_name} - "):].strip()
+        elif desc.startswith(f"{bank_name} -"):
+            desc = desc[len(f"{bank_name} -"):].strip()
+        elif desc.startswith(f"{bank_name} "):
+            desc = desc[len(f"{bank_name} "):].strip()
+            
+        # 去除多余的空格和标点
+        desc = desc.replace("  ", " ").strip()
+        desc = desc.replace("，", "，").strip()
+        
+        return desc
+    
+    def _find_duplicate_rule(self, new_rule: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """查找重复规则
+        
+        Args:
+            new_rule: 新规则对象
+            
+        Returns:
+            Optional[Dict]: 重复的规则对象，如果没有找到则返回None
+        """
+        new_bank = new_rule.get('bank_name', '')
+        new_desc = new_rule.get('description', '').strip()
+        new_type = new_rule.get('type', '')
+        
+        for existing_rule in self.rules:
+            existing_bank = existing_rule.get('bank_name', '')
+            existing_desc = existing_rule.get('description', '').strip()
+            existing_type = existing_rule.get('type', '')
+            
+            # 银行名称必须相同
+            if new_bank != existing_bank:
+                continue
+                
+            # 规则类型必须相同
+            if new_type != existing_type:
+                continue
+            
+            # 检查描述是否相似（去除银行名称前缀和多余空格）
+            new_desc_clean = self._clean_rule_description(new_desc, new_bank)
+            existing_desc_clean = self._clean_rule_description(existing_desc, existing_bank)
+            
+            # 如果清理后的描述相同，则认为是重复规则
+            if new_desc_clean == existing_desc_clean:
+                return existing_rule
+                
+        return None
+    
+    def _update_existing_rule(self, rule_id: str, new_rule_data: Dict[str, Any]) -> Dict[str, Any]:
+        """更新现有规则
+        
+        Args:
+            rule_id: 要更新的规则ID
+            new_rule_data: 新的规则数据
+            
+        Returns:
+            Dict: 更新结果
+        """
+        try:
+            # 找到要更新的规则
+            rule_index = None
+            for i, rule in enumerate(self.rules):
+                if rule["id"] == rule_id:
+                    rule_index = i
+                    break
+            
+            if rule_index is None:
+                return {
+                    "success": False,
+                    "error": f"规则不存在: {rule_id}",
+                    "rule": None
+                }
+            
+            # 保留原有的ID和创建时间
+            original_id = self.rules[rule_index]["id"]
+            original_created_time = self.rules[rule_index].get("created_time")
+            
+            # 更新规则数据
+            self.rules[rule_index].update(new_rule_data)
+            self.rules[rule_index]["id"] = original_id
+            if original_created_time:
+                self.rules[rule_index]["created_time"] = original_created_time
+            self.rules[rule_index]["updated_time"] = datetime.now().isoformat()
+            
+            # 更新银行规则
+            bank_name = new_rule_data.get('bank_name', '')
+            if bank_name in self.bank_rules:
+                for rule in self.bank_rules[bank_name]:
+                    if rule["id"] == rule_id:
+                        rule.update(new_rule_data)
+                        rule["id"] = original_id
+                        if original_created_time:
+                            rule["created_time"] = original_created_time
+                        rule["updated_time"] = datetime.now().isoformat()
+                        break
+            
+            # 同步到rule_parser
+            self.rule_parser.rules = self.rules.copy()
+            
+            # 保存规则
+            self.save_rules()
+            
+            logger.info(f"规则更新成功: {rule_id}")
+            return {
+                "success": True,
+                "rule": self.rules[rule_index],
+                "message": "规则已更新"
+            }
+            
+        except Exception as e:
+            logger.error(f"更新规则失败: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "rule": None
+            }
+
     def add_rule(self, rule_description: str, bank_name: str = None, rule_type: str = None) -> Dict[str, Any]:
         """添加新规则
         
@@ -80,6 +224,13 @@ class SpecialRulesManager:
                     "rule": None
                 }
             
+            # 检查是否存在重复规则
+            duplicate_rule = self._find_duplicate_rule(parsed_rule)
+            if duplicate_rule:
+                logger.warning(f"发现重复规则，将更新现有规则: {duplicate_rule['id']}")
+                # 更新现有规则
+                return self._update_existing_rule(duplicate_rule['id'], parsed_rule)
+            
             # 验证规则
             is_valid, errors = self.rule_parser.validate_rule(parsed_rule)
             if not is_valid:
@@ -99,7 +250,8 @@ class SpecialRulesManager:
                     self.bank_rules[bank_name] = []
                 self.bank_rules[bank_name].append(parsed_rule)
             
-            # 保存规则
+            # 同步到rule_parser并保存
+            self.rule_parser.rules = self.rules.copy()
             self.save_rules()
             
             logger.info(f"规则添加成功: {parsed_rule['id']}")
@@ -195,24 +347,31 @@ class SpecialRulesManager:
         try:
             logger.info(f"删除规则: {rule_id}")
             
-            # 从规则列表中删除
-            success = self.rule_parser.remove_rule(rule_id)
+            # 检查规则是否存在
+            rule_to_remove = self.get_rule_by_id(rule_id)
+            if not rule_to_remove:
+                logger.warning(f"规则不存在: {rule_id}")
+                return False
             
-            if success:
-                # 从SpecialRulesManager的规则列表中删除
-                self.rules = [rule for rule in self.rules if rule["id"] != rule_id]
-                
-                # 从银行规则中删除
-                for bank_name, bank_rule_list in self.bank_rules.items():
-                    self.bank_rules[bank_name] = [
-                        rule for rule in bank_rule_list if rule["id"] != rule_id
-                    ]
-                
-                # 保存规则
-                self.save_rules()
-                logger.info(f"规则删除成功: {rule_id}")
+            # 从SpecialRulesManager的规则列表中删除
+            original_count = len(self.rules)
+            self.rules = [rule for rule in self.rules if rule["id"] != rule_id]
             
-            return success
+            if len(self.rules) == original_count:
+                logger.warning(f"规则不存在: {rule_id}")
+                return False
+            
+            # 从银行规则中删除
+            for bank_name, bank_rule_list in self.bank_rules.items():
+                self.bank_rules[bank_name] = [
+                    rule for rule in bank_rule_list if rule["id"] != rule_id
+                ]
+            
+            # 同步到rule_parser并保存
+            self.rule_parser.rules = self.rules.copy()
+            self.save_rules()
+            logger.info(f"规则删除成功: {rule_id}")
+            return True
             
         except Exception as e:
             logger.error(f"删除规则失败: {str(e)}")
@@ -231,22 +390,32 @@ class SpecialRulesManager:
         try:
             logger.info(f"更新规则: {rule_id}")
             
+            # 检查规则是否存在
+            rule_to_update = None
+            for i, rule in enumerate(self.rules):
+                if rule["id"] == rule_id:
+                    rule_to_update = i
+                    break
+            
+            if rule_to_update is None:
+                logger.warning(f"规则不存在: {rule_id}")
+                return False
+            
             # 更新规则
-            success = self.rule_parser.update_rule(rule_id, updates)
+            self.rules[rule_to_update].update(updates)
             
-            if success:
-                # 更新银行规则
-                for bank_name, bank_rule_list in self.bank_rules.items():
-                    for rule in bank_rule_list:
-                        if rule["id"] == rule_id:
-                            rule.update(updates)
-                            break
-                
-                # 保存规则
-                self.save_rules()
-                logger.info(f"规则更新成功: {rule_id}")
+            # 更新银行规则
+            for bank_name, bank_rule_list in self.bank_rules.items():
+                for rule in bank_rule_list:
+                    if rule["id"] == rule_id:
+                        rule.update(updates)
+                        break
             
-            return success
+            # 同步到rule_parser并保存
+            self.rule_parser.rules = self.rules.copy()
+            self.save_rules()
+            logger.info(f"规则更新成功: {rule_id}")
+            return True
             
         except Exception as e:
             logger.error(f"更新规则失败: {str(e)}")
@@ -261,10 +430,7 @@ class SpecialRulesManager:
         Returns:
             List[Dict]: 规则列表
         """
-        if bank_name:
-            return self.bank_rules.get(bank_name, [])
-        else:
-            return self.rules
+        return self.rule_parser.get_rules(bank_name)
     
     def get_rule_by_id(self, rule_id: str) -> Optional[Dict[str, Any]]:
         """根据ID获取规则
@@ -289,51 +455,10 @@ class SpecialRulesManager:
             pd.DataFrame: 处理后的数据
         """
         try:
-            logger.info(f"开始应用规则，银行: {bank_name}, 规则数量: {len(rule_ids) if rule_ids else 'all'}")
+            logger.info(f"开始应用动态规则，银行: {bank_name}, 规则数量: {len(rule_ids) if rule_ids else 'all'}")
             
-            result_data = data.copy()
-            applied_rules = []
-            
-            # 获取要应用的规则
-            rules_to_apply = []
-            
-            if rule_ids:
-                # 应用指定的规则
-                for rule_id in rule_ids:
-                    rule = self.get_rule_by_id(rule_id)
-                    if rule:
-                        rules_to_apply.append(rule)
-            elif bank_name:
-                # 应用指定银行的规则
-                rules_to_apply = self.get_rules(bank_name)
-            else:
-                # 应用所有规则
-                rules_to_apply = self.get_rules()
-            
-            # 按规则类型排序，确保处理顺序
-            rule_priority = {
-                "field_mapping": 1,
-                "date_range": 2,
-                "balance_processing": 3,
-                "income_expense": 4,
-                "page_break": 5,
-                "custom": 6
-            }
-            
-            rules_to_apply.sort(key=lambda x: rule_priority.get(x.get("type", "custom"), 6))
-            
-            # 应用规则
-            for rule in rules_to_apply:
-                if rule.get("status") == "active":
-                    try:
-                        result_data = self.rule_parser.apply_rule(result_data, rule)
-                        applied_rules.append(rule["id"])
-                        logger.info(f"规则应用成功: {rule['id']}")
-                    except Exception as e:
-                        logger.error(f"规则应用失败: {rule['id']}, 错误: {str(e)}")
-            
-            logger.info(f"规则应用完成，应用了 {len(applied_rules)} 个规则")
-            return result_data
+            # 使用动态规则解析器应用规则
+            return self.rule_parser.apply_rules(data, bank_name, rule_ids)
             
         except Exception as e:
             logger.error(f"应用规则失败: {str(e)}")
@@ -349,6 +474,9 @@ class SpecialRulesManager:
             # 确保配置目录存在
             import os
             os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
+            
+            # 同步规则到rule_parser
+            self.rule_parser.rules = self.rules.copy()
             
             # 保存规则
             with open(self.config_file, 'w', encoding='utf-8') as f:

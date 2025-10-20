@@ -13,7 +13,7 @@ import re
 
 from header_detection import HeaderDetector, HeaderInfo
 from special_rules import SpecialRulesManager
-from rule_parser import RuleParser
+from dynamic_rule_parser import DynamicRuleParser
 
 
 @dataclass
@@ -51,7 +51,7 @@ class DataProcessor:
         else:
             self.special_rules_manager = special_rules_manager
             
-        self.rule_parser = RuleParser()
+        self.rule_parser = DynamicRuleParser()
         
         # 数据类型转换规则
         self.data_type_converters = {
@@ -829,8 +829,27 @@ class DataProcessor:
                 else:
                     print(f"检查银行规则: {bank_name}")
                     print(f"文件路径列表: {file_paths}")
-                    # 检查是否有该银行的文件
-                    bank_files = [fp for fp in file_paths if bank_name in os.path.basename(fp)]
+                    # 检查是否有该银行的文件 - 使用更灵活的匹配逻辑
+                    bank_files = []
+                    for fp in file_paths:
+                        file_name = os.path.basename(fp)
+                        # 完全匹配
+                        if bank_name in file_name:
+                            bank_files.append(fp)
+                        # 部分匹配 - 针对浦发银行
+                        elif bank_name == "浦发银行" and ("浦发" in file_name or "pufa" in file_name.lower()):
+                            bank_files.append(fp)
+                        # 部分匹配 - 针对其他银行
+                        elif bank_name == "工商银行" and ("工商" in file_name or "icbc" in file_name.lower()):
+                            bank_files.append(fp)
+                        elif bank_name == "华夏银行" and ("华夏" in file_name or "hx" in file_name.lower()):
+                            bank_files.append(fp)
+                        elif bank_name == "长安银行" and ("长安" in file_name or "ca" in file_name.lower()):
+                            bank_files.append(fp)
+                        elif bank_name == "招商银行" and ("招商" in file_name or "cmb" in file_name.lower()):
+                            bank_files.append(fp)
+                        elif bank_name == "北京银行" and ("北京" in file_name or "boc" in file_name.lower()):
+                            bank_files.append(fp)
                     print(f"匹配的文件: {bank_files}")
                     
                     if bank_files:
@@ -872,6 +891,9 @@ class DataProcessor:
     def apply_bank_rules(self, data: pd.DataFrame, file_name: str) -> pd.DataFrame:
         """应用银行特定规则到数据"""
         try:
+            # 重新加载规则以确保获取最新配置
+            self.rule_parser.reload_rules()
+            
             # 获取银行规则
             bank_rule = self.rule_parser.get_bank_rule_by_file(file_name)
             
@@ -892,10 +914,16 @@ class DataProcessor:
                     processed_data = self._apply_spdb_cib_bank_rule(processed_data, parameters)
                 else:
                     processed_data = self._apply_icbc_hx_bank_rule(processed_data, parameters)
+            elif rule_type == "debit_credit_processing":
+                # 使用动态规则解析器应用借贷标志处理规则
+                processed_data = self.rule_parser.apply_rule(processed_data, bank_rule)
             elif rule_type == "income_expense_processing":
                 processed_data = self._apply_ca_bank_rule(processed_data, parameters)
             elif rule_type == "sign_processing":
                 processed_data = self._apply_cmb_bank_rule(processed_data, parameters)
+            elif rule_type == "field_mapping":
+                # 使用动态规则解析器应用字段映射规则
+                processed_data = self.rule_parser.apply_rule(processed_data, bank_rule)
             
             return processed_data
             
@@ -1315,7 +1343,7 @@ class DataProcessor:
             return None
 
     def _apply_field_mapping_to_merged_data(self, data: pd.DataFrame, file_paths: List[str]) -> pd.DataFrame:
-        """对合并后的数据应用字段映射配置，严格按照字段映射规则设置"""
+        """对合并后的数据应用字段映射配置，基于文件名匹配"""
         try:
             import json
             import os
@@ -1335,31 +1363,49 @@ class DataProcessor:
             mapped_data = data.copy()
             standard_columns = ['source_file']  # 保留源文件列
             
-            # 为每个源文件应用字段映射
+            # 基于文件名匹配应用字段映射配置
             for file_path in file_paths:
                 file_name = os.path.basename(file_path)
+                print(f"处理文件: {file_name}")
                 
                 # 查找匹配的映射配置
                 mappings = None
-                for config_key in mapping_config.keys():
-                    # 提取配置中的银行名称
-                    config_bank_name = os.path.basename(config_key).replace('.xlsx', '')
-                    # 检查文件名是否包含银行名称
-                    if config_bank_name in file_name or file_name in config_key or config_key.endswith(file_name):
-                        mappings = mapping_config[config_key]
-                        print(f"找到字段映射配置: {config_key}")
-                        break
+                
+                # 1. 尝试完整路径匹配
+                if file_path in mapping_config:
+                    mappings = mapping_config[file_path]
+                    print(f"找到完整路径匹配的映射配置: {file_path}")
+                
+                # 2. 尝试标准化路径匹配
+                if not mappings:
+                    normalized_file_path = os.path.normpath(file_path)
+                    for config_key in mapping_config.keys():
+                        normalized_config = os.path.normpath(config_key)
+                        if normalized_config == normalized_file_path:
+                            mappings = mapping_config[config_key]
+                            print(f"找到标准化路径匹配的映射配置: {config_key}")
+                            break
+                
+                # 3. 尝试文件名匹配
+                if not mappings:
+                    for config_key in mapping_config.keys():
+                        if file_name in config_key or config_key.endswith(file_name):
+                            mappings = mapping_config[config_key]
+                            print(f"找到文件名匹配的映射配置: {config_key}")
+                            break
                 
                 if not mappings:
                     print(f"未找到字段映射配置: {file_name}")
                     continue
                 
-                # 获取该文件的数据行索引
-                file_mask = mapped_data['source_file'] == file_name
-                if not file_mask.any():
+                # 应用字段映射到匹配的数据行
+                file_data_mask = mapped_data['source_file'] == file_name
+                if not file_data_mask.any():
+                    print(f"未找到文件 {file_name} 的数据行")
                     continue
                 
-                # 应用字段映射
+                print(f"应用字段映射配置到文件: {file_name}")
+                
                 for mapping in mappings:
                     if mapping.get("is_mapped", False):
                         standard_field = mapping.get("standard_field")
@@ -1368,29 +1414,25 @@ class DataProcessor:
                         if standard_field and imported_column:
                             # 检查imported_column是否存在，如果不存在则跳过映射
                             if imported_column not in data.columns:
-                                print(f"字段映射跳过: {imported_column} 不存在于数据中，跳过映射: {imported_column} -> {standard_field} (文件: {file_name})")
+                                print(f"字段映射跳过: {imported_column} 不存在于数据中，跳过映射: {imported_column} -> {standard_field}")
                                 continue
+                            
                             # 检查目标字段是否已经存在（可能由规则生成）
                             if standard_field not in mapped_data.columns:
                                 # 创建新列并映射数据
                                 mapped_data[standard_field] = ""
-                                mapped_data.loc[file_mask, standard_field] = mapped_data.loc[file_mask, imported_column]
-                                print(f"字段映射: {imported_column} -> {standard_field} (文件: {file_name})")
+                                mapped_data.loc[file_data_mask, standard_field] = mapped_data.loc[file_data_mask, imported_column]
+                                print(f"字段映射: {imported_column} -> {standard_field}")
                             else:
                                 # 字段已存在，检查是否由规则生成（非空值）
-                                existing_values = mapped_data.loc[file_mask, standard_field]
+                                existing_values = mapped_data.loc[file_data_mask, standard_field]
                                 if existing_values.notna().any() and (existing_values != "").any():
-                                    print(f"字段 {standard_field} 已由规则生成，跳过映射: {imported_column} -> {standard_field} (文件: {file_name})")
+                                    print(f"字段 {standard_field} 已由规则生成，跳过映射: {imported_column} -> {standard_field}")
                                 else:
-                                    # 字段存在但为空，进行映射
-                                    # 确保数据类型兼容
-                                    try:
-                                        mapped_data.loc[file_mask, standard_field] = mapped_data.loc[file_mask, imported_column].astype(str)
-                                        print(f"字段映射: {imported_column} -> {standard_field} (文件: {file_name})")
-                                    except Exception as e:
-                                        print(f"字段映射失败: {imported_column} -> {standard_field} (文件: {file_name}), 错误: {e}")
+                                    # 字段为空，可以映射
+                                    mapped_data.loc[file_data_mask, standard_field] = mapped_data.loc[file_data_mask, imported_column]
+                                    print(f"字段映射: {imported_column} -> {standard_field}")
                             
-                            # 记录标准字段
                             if standard_field not in standard_columns:
                                 standard_columns.append(standard_field)
             
@@ -1417,7 +1459,7 @@ class DataProcessor:
             all_columns = []
             
             # 定义标准字段列表（按照字段映射配置中的标准字段）
-            standard_field_list = ['交易时间', '收入', '支出', '余额', '摘要', '对方行名', '对方户名']
+            standard_field_list = ['交易时间', '收入', '支出', '余额', '摘要', '对方行名', '对方户名', '借贷标志', '发生额', '对方行号']
             
             # 只添加标准字段
             for col in standard_field_list:
@@ -1470,7 +1512,7 @@ class DataProcessor:
                 standardized_data['source_file'] = ''
             
             # 只保留标准字段和source_file列
-            final_columns = ['交易时间', '收入', '支出', '余额', '摘要', '对方行名', '对方户名', 'source_file']
+            final_columns = ['交易时间', '收入', '支出', '余额', '摘要', '对方户名', 'source_file']
             available_columns = [col for col in final_columns if col in standardized_data.columns]
             
             return standardized_data[available_columns]

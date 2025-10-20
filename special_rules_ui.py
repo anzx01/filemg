@@ -13,7 +13,7 @@ import json
 import os
 from typing import Dict, List, Any, Optional
 from special_rules import SpecialRulesManager
-from rule_parser import RuleParser
+from dynamic_rule_parser import DynamicRuleParser
 from llm_api import RuleLLMParser
 
 
@@ -28,7 +28,7 @@ class SpecialRulesUI:
         """
         self.parent = parent
         self.rules_manager = SpecialRulesManager()
-        self.rule_parser = RuleParser()
+        self.rule_parser = DynamicRuleParser()
         self.llm_parser = RuleLLMParser()
         
         # 银行列表

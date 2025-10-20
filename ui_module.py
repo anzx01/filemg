@@ -1195,6 +1195,8 @@ class ExcelMergeUI:
                     bank_name = "长安银行"
                 elif "招商银行" in file_name:
                     bank_name = "招商银行"
+                elif "浦发银行" in file_name:
+                    bank_name = "浦发银行"
                 elif "邮储银行" in file_name:
                     bank_name = "邮储银行"
                 

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm config list:*)",
+      "Bash(npm config get:*)",
+      "Bash(npm config ls:*)",
+      "Bash(npm config set:*)",
+      "Read(//c/Users/DELL/AppData/Roaming/npm/etc/**)",
+      "Bash(npm config delete:*)",
+      "Bash(npm root:*)",
+      "Bash(npm ping:*)",
+      "Bash(npm ls:*)",
+      "Bash(npm whoami:*)",
+      "Bash(npm config edit:*)",
+      "Bash(rm:*)",
+      "Bash(git rm:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

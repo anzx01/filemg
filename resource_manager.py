@@ -108,11 +108,6 @@ class ResourceManager:
                 "rules": [],
                 "version": "1.0"
             }
-        elif 'bank_rules_config.json' in config_name:
-            default_config = {
-                "bank_rules": [],
-                "version": "1.0"
-            }
         elif 'special_rules.json' in config_name:
             default_config = {
                 "special_rules": [],

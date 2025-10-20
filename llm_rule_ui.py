@@ -7,14 +7,14 @@ LLM自然语言规则输入界面
 
 import json
 import sys
-from rule_parser import RuleParser
+from dynamic_rule_parser import DynamicRuleParser
 
 class LLMRuleUI:
     """LLM规则输入界面"""
     
     def __init__(self):
         """初始化界面"""
-        self.parser = RuleParser()
+        self.parser = DynamicRuleParser()
         self.running = True
     
     def show_menu(self):
